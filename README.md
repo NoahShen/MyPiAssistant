@@ -1,4 +1,4 @@
 aria2rpc
 ========
 
-aria2 rpc client in golang
+aria2 controller in golang
