@@ -42,6 +42,14 @@ func NoTestPause(t *testing.T) {
 	log.Println(gid)
 }
 
+func NoTestPauseAll(t *testing.T) {
+	reply, err := PauseAll()
+	if err != nil {
+		log.Fatal("Pause All error:", err)
+	}
+	log.Println(reply)
+}
+
 func NoTestUnpause(t *testing.T) {
 	gid, err := Unpause("16")
 	if err != nil {
@@ -50,7 +58,15 @@ func NoTestUnpause(t *testing.T) {
 	log.Println(gid)
 }
 
-func TestGetStatus(t *testing.T) {
+func NoTestUnPauseAll(t *testing.T) {
+	reply, err := UnpauseAll()
+	if err != nil {
+		log.Fatal("Unpause All error:", err)
+	}
+	log.Println(reply)
+}
+
+func NoTestGetStatus(t *testing.T) {
 	keys := []string{"gid", "status"}
 	reply, err := GetStatus("16", keys)
 	if err != nil {
@@ -74,7 +90,7 @@ func NoTestGetActive(t *testing.T) {
 	log.Println(reply2)
 }
 
-func TestGetWaiting(t *testing.T) {
+func NoTestGetWaiting(t *testing.T) {
 	keys := []string{"gid", "status"}
 	reply, err := GetWaiting(0, 10, keys)
 	if err != nil {
@@ -99,12 +115,30 @@ func NoTestGetOption(t *testing.T) {
 	log.Println(reply)
 }
 
+func NoTestGetGlobalOption(t *testing.T) {
+	reply, err := GetGlobalOption()
+	if err != nil {
+		log.Fatal("GetGlobalOption error:", err)
+	}
+	log.Println(reply)
+}
+
 func NoTestChangeOption(t *testing.T) {
 	params := make(map[string]string)
-	params["max-download-limit"] = "7K"
-	reply, err := ChangeOption("16", params)
+	params["max-download-limit"] = "12K"
+	reply, err := ChangeOption("2", params)
 	if err != nil {
 		log.Fatal("ChangeOption error:", err)
+	}
+	log.Println(reply)
+}
+
+func TestChangeGlobalOption(t *testing.T) {
+	params := make(map[string]string)
+	params["max-overall-download-limit"] = "0"
+	reply, err := ChangeGlobalOption(params)
+	if err != nil {
+		log.Fatal("ChangeGlobalOption error:", err)
 	}
 	log.Println(reply)
 }

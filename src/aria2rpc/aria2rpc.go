@@ -89,6 +89,17 @@ func Pause(gid string, force bool) (string, error) {
 	return replyGID, nil
 }
 
+func PauseAll() (string, error) {
+	method := "aria2.pauseAll"
+	paramArr := make([]string, 0)
+	var reply string
+	err := httprpc.CallJson(RPC_VERSION, RPC_URL, method, paramArr, &reply)
+	if err != nil {
+		return "", err
+	}
+	return reply, nil
+}
+
 func Unpause(gid string) (string, error) {
 	method := "aria2.unpause"
 	paramArr := make([]interface{}, 1)
@@ -99,6 +110,17 @@ func Unpause(gid string) (string, error) {
 		return "", err
 	}
 	return replyGID, nil
+}
+
+func UnpauseAll() (string, error) {
+	method := "aria2.unpauseAll"
+	paramArr := make([]string, 0)
+	var reply string
+	err := httprpc.CallJson(RPC_VERSION, RPC_URL, method, paramArr, &reply)
+	if err != nil {
+		return "", err
+	}
+	return reply, nil
 }
 
 func GetStatus(gid string, keys []string) (map[string]interface{}, error) {
@@ -178,6 +200,30 @@ func ChangeOption(gid string, params map[string]string) (string, error) {
 	method := "aria2.changeOption"
 	paramArr := make([]interface{}, 1)
 	paramArr[0] = gid
+	paramArr = append(paramArr, params)
+
+	var reply string
+	err := httprpc.CallJson(RPC_VERSION, RPC_URL, method, paramArr, &reply)
+	if err != nil {
+		return "", err
+	}
+	return reply, nil
+}
+
+func GetGlobalOption() (map[string]interface{}, error) {
+	method := "aria2.getGlobalOption"
+	paramArr := make([]interface{}, 0)
+	var reply = make(map[string]interface{})
+	err := httprpc.CallJson(RPC_VERSION, RPC_URL, method, paramArr, &reply)
+	if err != nil {
+		return nil, err
+	}
+	return reply, nil
+}
+
+func ChangeGlobalOption(params map[string]string) (string, error) {
+	method := "aria2.changeGlobalOption"
+	paramArr := make([]interface{}, 0)
 	paramArr = append(paramArr, params)
 
 	var reply string
