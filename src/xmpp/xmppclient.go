@@ -46,6 +46,7 @@ func (self *XmppClient) startSendMessage() {
 		case msg := <-self.sendQueue:
 			self.client.Send(*msg)
 		case <-self.stopSendCh:
+			close(self.sendQueue)
 			break
 		}
 	}
