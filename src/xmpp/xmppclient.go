@@ -7,7 +7,7 @@ import (
 
 type XmppClient struct {
 	client     *Client
-	sendQueue  chan *Chat
+	sendQueue  chan interface{}
 	stopSendCh chan int
 	mutex      sync.Mutex
 	handlers   []Handler
@@ -15,7 +15,7 @@ type XmppClient struct {
 
 func NewXmppClient() *XmppClient {
 	xmppClient := new(XmppClient)
-	xmppClient.sendQueue = make(chan *Chat, 10)
+	xmppClient.sendQueue = make(chan interface{}, 10)
 	xmppClient.stopSendCh = make(chan int)
 	return xmppClient
 }
@@ -36,7 +36,7 @@ func (self *XmppClient) Disconnect() error {
 	return self.client.Close()
 }
 
-func (self *XmppClient) Send(msg *Chat) {
+func (self *XmppClient) Send(msg interface{}) {
 	self.sendQueue <- msg
 }
 
@@ -44,7 +44,7 @@ func (self *XmppClient) startSendMessage() {
 	for {
 		select {
 		case msg := <-self.sendQueue:
-			self.client.Send(*msg)
+			self.client.Send(msg)
 		case <-self.stopSendCh:
 			close(self.sendQueue)
 			break

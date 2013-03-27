@@ -7,6 +7,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
+	"time"
 	"xmpp"
 )
 
@@ -42,11 +43,12 @@ var commandMap = map[string]string{
 }
 
 type config struct {
-	XmppHost   string
-	XmppUser   string
-	XmppPwd    string
-	RpcUrl     string
-	RpcVersion string
+	UpdateInterval int
+	XmppHost       string
+	XmppUser       string
+	XmppPwd        string
+	RpcUrl         string
+	RpcVersion     string
 }
 
 type PiDownloader struct {
@@ -80,6 +82,9 @@ func loadConfig(configPath string) (*config, error) {
 	}
 
 	if config.RpcVersion, err = c.GetString("aria2", "rpc_version"); err != nil {
+		return nil, err
+	}
+	if config.UpdateInterval, err = c.GetInt("aria2", "update_interval"); err != nil {
 		return nil, err
 	}
 
@@ -131,6 +136,15 @@ func (self *PiDownloader) StartService() {
 				replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, resp}
 			}
 			self.xmppClient.Send(replyChat)
+		case <-time.After((time.Duration)(self.config.UpdateInterval) * time.Second):
+			status, statErr := self.getAria2GlobalStat()
+			log.Println("aria2 global stat:", status)
+			if statErr != nil {
+				self.xmppClient.Send(statErr.Error())
+			} else {
+				self.xmppClient.Send(status)
+			}
+
 		case <-self.stopCh:
 			break
 		}
@@ -168,4 +182,21 @@ func (self *PiDownloader) processCommandNo(number string) (string, error) {
 		return helpMessage, nil
 	}
 	return "", nil
+}
+
+func (self *PiDownloader) getAria2GlobalStat() (string, error) {
+	globalStat, err := aria2rpc.GetGlobalStat()
+	if err != nil {
+		log.Println("GetGlobalStat error:", err)
+		return "", nil
+	}
+	speed := globalStat["downloadSpeed"].(string)
+	numActive := globalStat["numActive"].(string)
+	numStopped := globalStat["numStopped"].(string)
+	numWaiting := globalStat["numWaiting"].(string)
+	return "spd:" + speed + ";" +
+		"act:" + numActive + ";" +
+		"wait:" + numWaiting + ";" +
+		"stop:" + numStopped, nil
+
 }
