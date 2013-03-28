@@ -236,6 +236,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 		if err != nil {
 			return Chat{}, err
 		}
+		log.Println("receive msg:", val)
 		switch v := val.(type) {
 		case *clientMessage:
 			return Chat{v.From, v.Type, v.Body}, nil
@@ -248,7 +249,12 @@ func (c *Client) Recv() (event interface{}, err error) {
 
 // Send sends message text.
 func (c *Client) Send(msg interface{}) {
+	log.Println("Send message:", msg)
 	switch v := msg.(type) {
+	case *Chat:
+		fmt.Fprintf(c.tls, "<message to='%s' type='%s' xml:lang='en'>"+
+			"<body>%s</body></message>",
+			xmlEscape(v.Remote), xmlEscape(v.Type), xmlEscape(v.Text))
 	case Chat:
 		fmt.Fprintf(c.tls, "<message to='%s' type='%s' xml:lang='en'>"+
 			"<body>%s</body></message>",

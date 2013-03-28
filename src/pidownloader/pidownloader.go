@@ -2,12 +2,15 @@ package pidownloader
 
 import (
 	"aria2rpc"
+	"bytes"
 	"code.google.com/p/goconf/conf"
 	"errors"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"time"
+	"utils"
 	"xmpp"
 )
 
@@ -19,27 +22,31 @@ remove[c2] gid
 
 pause[c3] gid;
 
-PauseAll[c4]
+pauseall[c4]
 
 Unpause[c5] gid
 
-UnpauseAll[c6]
+unpauseall[c6]
 
 GetStatus[c7] gid [keys]
  
-GetActive[c8] [keys]
+getactive[c8] [keys]
 
 GetWaiting[c9] [keys]
 
 GetStopped[c10] [keys]
 
-GetGlobalStat[c87]
+getstat[c87]
 
 MaxSpeed[c11] speed
 `
 
 var commandMap = map[string]string{
-	"help": "c0",
+	"help":       "c0",
+	"pauseall":   "c4",
+	"unpauseall": "c6",
+	"getactive":  "c8",
+	"getstat":    "c87",
 }
 
 type config struct {
@@ -117,6 +124,8 @@ func (self *PiDownloader) Init() error {
 	if xmppErr != nil {
 		return xmppErr
 	}
+
+	aria2rpc.RpcUrl = self.config.RpcUrl
 	return nil
 }
 
@@ -138,7 +147,6 @@ func (self *PiDownloader) StartService() {
 			self.xmppClient.Send(replyChat)
 		case <-time.After((time.Duration)(self.config.UpdateInterval) * time.Second):
 			status, statErr := self.getAria2GlobalStat()
-			log.Println("aria2 global stat:", status)
 			if statErr != nil {
 				self.xmppClient.Send(statErr.Error())
 			} else {
@@ -157,14 +165,16 @@ func (self *PiDownloader) StopService() {
 
 func (self *PiDownloader) process(command string) (string, error) {
 	log.Println("receive command:", command)
-	if strings.HasPrefix(command, "c") {
-		return self.processCommandNo(command[1:])
+	commArr := strings.Split(command, " ")
+	comm := commArr[0]
+	if strings.HasPrefix(comm, "c") {
+		return self.processCommandNo(comm[1:], commArr[1:])
 	} else {
-		c := strings.ToLower(command)
+		c := strings.ToLower(comm)
 		commandNo := commandMap[c]
 		log.Println("mapped command no:", commandNo)
 		if commandNo != "" && len(commandNo) > 0 {
-			return self.processCommandNo(commandNo[1:])
+			return self.processCommandNo(commandNo[1:], commArr[1:])
 		} else {
 			return "", errors.New("Error command, please type \"help\" for helping information")
 		}
@@ -172,7 +182,7 @@ func (self *PiDownloader) process(command string) (string, error) {
 	return "OK", nil
 }
 
-func (self *PiDownloader) processCommandNo(number string) (string, error) {
+func (self *PiDownloader) processCommandNo(number string, args []string) (string, error) {
 	cNumber, numErr := strconv.Atoi(number)
 	if numErr != nil {
 		return "", errors.New("Number Command must be \"c\" + number")
@@ -180,8 +190,57 @@ func (self *PiDownloader) processCommandNo(number string) (string, error) {
 	switch cNumber {
 	case 0:
 		return helpMessage, nil
+	case 4:
+		return self.pauseAll()
+	case 6:
+		return self.unpauseAll()
+	case 8:
+		return self.getActive(args)
+	case 87:
+		return self.getAria2GlobalStat()
+	default:
+		return "", errors.New("Error command no, please type \"help\" for helping information")
 	}
 	return "", nil
+}
+
+func (self *PiDownloader) getActive(args []string) (string, error) {
+	var keys []string
+	if args == nil || len(args) == 0 {
+		keys = []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
+	} else {
+		keys = args
+	}
+	actives, err := aria2rpc.GetActive(keys)
+	if err != nil {
+		return "", err
+	}
+	var buffer bytes.Buffer
+	for _, task := range actives {
+		gid := task["gid"].(string)
+		speed := utils.FormatSizeString(task["downloadSpeed"].(string))
+		completed, _ := strconv.ParseFloat(task["completedLength"].(string), 64)
+		total, _ := strconv.ParseFloat(task["totalLength"].(string), 64)
+		buffer.WriteString(fmt.Sprintf("gid: %s;downloadSpeed: %s;progress: %.2f%%\n", gid, speed, completed*100/total))
+	}
+
+	return buffer.String(), nil
+}
+
+func (self *PiDownloader) pauseAll() (string, error) {
+	_, err := aria2rpc.PauseAll()
+	if err != nil {
+		return "", err
+	}
+	return "OK", nil
+}
+
+func (self *PiDownloader) unpauseAll() (string, error) {
+	_, err := aria2rpc.UnpauseAll()
+	if err != nil {
+		return "", err
+	}
+	return "OK", nil
 }
 
 func (self *PiDownloader) getAria2GlobalStat() (string, error) {
@@ -190,7 +249,7 @@ func (self *PiDownloader) getAria2GlobalStat() (string, error) {
 		log.Println("GetGlobalStat error:", err)
 		return "", nil
 	}
-	speed := globalStat["downloadSpeed"].(string)
+	speed := utils.FormatSizeString(globalStat["downloadSpeed"].(string))
 	numActive := globalStat["numActive"].(string)
 	numStopped := globalStat["numStopped"].(string)
 	numWaiting := globalStat["numWaiting"].(string)
@@ -198,5 +257,4 @@ func (self *PiDownloader) getAria2GlobalStat() (string, error) {
 		"act:" + numActive + ";" +
 		"wait:" + numWaiting + ";" +
 		"stop:" + numStopped, nil
-
 }
