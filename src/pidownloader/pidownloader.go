@@ -17,38 +17,43 @@ import (
 
 var helpMessage = `
 Command:
-addUri[c1] uri
+The string in [] is command's alias.For example: addUri http..  equals c1 http...
 
-remove[c2] gid
+addUri[c1] uri         (add download task)
 
-pause[c3] gid;
+rm[c2] gid             (remove specific task by gid)
 
-pauseall[c4]
+pause[c3] gid          (pause specific task by gid)
 
-Unpause[c5] gid
+pauseall[c4]           (pause all tasks)
 
-unpauseall[c6]
+unpause[c5] gid        (unpause specific task by gid)
 
-GetStatus[c7] gid [keys]
+unpauseall[c6]         (unpause all tasks)
+
+maxspd[c7] speed       (set max download speed, 0 for unlimit)
  
-getactive[c8] [keys]
+getact[c8] [keys]      (get active tasks)
 
-GetWaiting[c9] [keys]
+getwt[c9] [keys]       (get waiting tasks)
 
-GetStopped[c10] [keys]
+getstp[c10] [keys]     (get stopped tasks)
 
-getstat[c87]
-
-MaxSpeed[c11] speed
+getstat[c87]           (get global stat)
 `
 
 var commandMap = map[string]string{
 	"help":       "c0",
+	"adduri":     "c1",
+	"rm":         "c2",
+	"pause":      "c3",
 	"pauseall":   "c4",
+	"unpause":    "c5",
 	"unpauseall": "c6",
-	"getactive":  "c8",
-	"getwaiting": "c9",
-	"getstopped": "c10",
+	"maxspd":     "c7",
+	"getact":     "c8",
+	"getwt":      "c9",
+	"getstp":     "c10",
 	"getstat":    "c87",
 }
 
@@ -193,10 +198,20 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 	switch cNumber {
 	case 0:
 		return helpMessage, nil
+	case 1:
+		return self.addUri(args)
+	case 2:
+		return self.remove(args)
+	case 3:
+		return self.pause(args)
 	case 4:
 		return self.pauseAll()
+	case 5:
+		return self.unpause(args)
 	case 6:
 		return self.unpauseAll()
+	case 7:
+		return self.maxspeed(args)
 	case 8:
 		return self.getActive(args)
 	case 9:
@@ -209,6 +224,53 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 		return "", errors.New("Error command no, please type \"help\" for helping information")
 	}
 	return "", nil
+}
+
+func (self *PiDownloader) addUri(args []string) (string, error) {
+	uri := args[0]
+	gid, err := aria2rpc.AddUri(uri, nil)
+	if err != nil {
+		return "", err
+	}
+	return "Add successful, gid:" + gid, nil
+}
+
+func (self *PiDownloader) remove(args []string) (string, error) {
+	gid := args[0]
+	rgid, err := aria2rpc.Remove(gid, true)
+	if err != nil {
+		return "", err
+	}
+	log.Println(gid)
+	return "Remove successful, gid:" + rgid, nil
+}
+
+func (self *PiDownloader) pause(args []string) (string, error) {
+	gid := args[0]
+	_, err := aria2rpc.Pause(gid, true)
+	if err != nil {
+		return "", err
+	}
+	return "OK", nil
+}
+
+func (self *PiDownloader) unpause(args []string) (string, error) {
+	gid := args[0]
+	_, err := aria2rpc.Unpause(gid)
+	if err != nil {
+		return "", err
+	}
+	return "OK", nil
+}
+
+func (self *PiDownloader) maxspeed(args []string) (string, error) {
+	params := make(map[string]string)
+	params["max-overall-download-limit"] = args[0]
+	_, err := aria2rpc.ChangeGlobalOption(params)
+	if err != nil {
+		return "", nil
+	}
+	return "OK", nil
 }
 
 func (self *PiDownloader) getActive(args []string) (string, error) {
@@ -284,7 +346,6 @@ func (self *PiDownloader) getTitle(task map[string]interface{}) string {
 			return path.Base(filePath.(string))
 		}
 	}
-
 	return "No title"
 }
 
@@ -314,8 +375,5 @@ func (self *PiDownloader) getAria2GlobalStat() (string, error) {
 	numActive := globalStat["numActive"].(string)
 	numStopped := globalStat["numStopped"].(string)
 	numWaiting := globalStat["numWaiting"].(string)
-	return "spd:" + speed + ";" +
-		"act:" + numActive + ";" +
-		"wait:" + numWaiting + ";" +
-		"stop:" + numStopped, nil
+	return fmt.Sprintf("spd:%s ; act:%s ; wait:%s ; stop:%s", speed, numActive, numWaiting, numStopped), nil
 }

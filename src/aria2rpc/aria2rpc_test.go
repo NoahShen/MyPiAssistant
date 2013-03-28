@@ -19,7 +19,7 @@ func NoTestAddUri(t *testing.T) {
 	log.Println(gid)
 }
 
-func TestAddTorrent(t *testing.T) {
+func NoTestAddTorrent(t *testing.T) {
 	gid, err := AddTorrent("/home/noah/DueWest.torrent")
 	if err != nil {
 		log.Fatal("add Torrent error:", err)
@@ -67,9 +67,9 @@ func NoTestUnPauseAll(t *testing.T) {
 	log.Println(reply)
 }
 
-func NoTestGetStatus(t *testing.T) {
-	keys := []string{"gid", "status"}
-	reply, err := GetStatus("16", keys)
+func TestGetStatus(t *testing.T) {
+	//keys := []string{"gid", "status"}
+	reply, err := GetStatus("27", nil)
 	if err != nil {
 		log.Fatal("GetStatus", err)
 	}
