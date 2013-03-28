@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -46,6 +47,8 @@ var commandMap = map[string]string{
 	"pauseall":   "c4",
 	"unpauseall": "c6",
 	"getactive":  "c8",
+	"getwaiting": "c9",
+	"getstopped": "c10",
 	"getstat":    "c87",
 }
 
@@ -196,6 +199,10 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 		return self.unpauseAll()
 	case 8:
 		return self.getActive(args)
+	case 9:
+		return self.getWaiting(args)
+	case 10:
+		return self.getStopped(args)
 	case 87:
 		return self.getAria2GlobalStat()
 	default:
@@ -205,26 +212,80 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 }
 
 func (self *PiDownloader) getActive(args []string) (string, error) {
-	var keys []string
-	if args == nil || len(args) == 0 {
-		keys = []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
-	} else {
-		keys = args
-	}
-	actives, err := aria2rpc.GetActive(keys)
+	//var keys []string
+	//if args == nil || len(args) == 0 {
+	//	keys = []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
+	//} else {
+	//	keys = args
+	//}
+	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
+	tasks, err := aria2rpc.GetActive(keys)
 	if err != nil {
 		return "", err
 	}
+	return self.formatOutput(tasks)
+}
+
+func (self *PiDownloader) getWaiting(args []string) (string, error) {
+	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
+	tasks, err := aria2rpc.GetWaiting(0, 100, keys)
+	if err != nil {
+		return "", err
+	}
+	return self.formatOutput(tasks)
+}
+
+func (self *PiDownloader) getStopped(args []string) (string, error) {
+	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
+	tasks, err := aria2rpc.GetStopped(0, 100, keys)
+	if err != nil {
+		return "", err
+	}
+	return self.formatOutput(tasks)
+}
+
+func (self *PiDownloader) formatOutput(tasks []map[string]interface{}) (string, error) {
+	if tasks == nil || len(tasks) == 0 {
+		return "no records", nil
+	}
 	var buffer bytes.Buffer
-	for _, task := range actives {
+	buffer.WriteString("\n")
+	for _, task := range tasks {
 		gid := task["gid"].(string)
 		speed := utils.FormatSizeString(task["downloadSpeed"].(string))
 		completed, _ := strconv.ParseFloat(task["completedLength"].(string), 64)
 		total, _ := strconv.ParseFloat(task["totalLength"].(string), 64)
-		buffer.WriteString(fmt.Sprintf("gid: %s;downloadSpeed: %s;progress: %.2f%%\n", gid, speed, completed*100/total))
+		title := self.getTitle(task)
+		buffer.WriteString(fmt.Sprintf("gid: %s\ntitle: %s\nspd: %s\nprog: %.2f%%\n", gid, title, speed, completed*100/total))
+		buffer.WriteString("==================\n")
+	}
+	return buffer.String(), nil
+}
+
+func (self *PiDownloader) getTitle(task map[string]interface{}) string {
+	log.Println(task)
+	// get bt task title
+	bt := task["bittorrent"]
+	if bt != nil {
+		info := (bt.(map[string]interface{}))["info"]
+		if info != nil {
+			name := (info.(map[string]interface{}))["name"]
+			if name != nil {
+				return name.(string)
+			}
+		}
+	}
+	// http task title
+	files := task["files"]
+	if files != nil {
+		file := files.([]interface{})[0].(map[string]interface{})
+		filePath := file["path"]
+		if filePath != nil {
+			return path.Base(filePath.(string))
+		}
 	}
 
-	return buffer.String(), nil
+	return "No title"
 }
 
 func (self *PiDownloader) pauseAll() (string, error) {

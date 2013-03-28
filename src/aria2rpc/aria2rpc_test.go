@@ -6,7 +6,8 @@ import (
 )
 
 func NoTestAddUri(t *testing.T) {
-	uri := "https://www.kernel.org/pub/linux/kernel/v3.x/linux-3.8.4.tar.xz"
+	//uri := "https://www.kernel.org/pub/linux/kernel/v3.x/linux-3.8.4.tar.xz"
+	uri := "http://mirrors.ustc.edu.cn/ubuntu-releases//quantal/ubuntu-12.10-desktop-i386.iso"
 	//uri := "http://bt.ktxp.com/torrents/2013/03/24/3a091e44394e2ec6345cc263accf31058eda504e.torrent"
 
 	params := make(map[string]string)
@@ -18,7 +19,7 @@ func NoTestAddUri(t *testing.T) {
 	log.Println(gid)
 }
 
-func NoTestAddTorrent(t *testing.T) {
+func TestAddTorrent(t *testing.T) {
 	gid, err := AddTorrent("/home/noah/DueWest.torrent")
 	if err != nil {
 		log.Fatal("add Torrent error:", err)
@@ -133,9 +134,9 @@ func NoTestChangeOption(t *testing.T) {
 	log.Println(reply)
 }
 
-func TestChangeGlobalOption(t *testing.T) {
+func NoTestChangeGlobalOption(t *testing.T) {
 	params := make(map[string]string)
-	params["max-overall-download-limit"] = "0"
+	params["max-overall-download-limit"] = "1K"
 	reply, err := ChangeGlobalOption(params)
 	if err != nil {
 		log.Fatal("ChangeGlobalOption error:", err)
