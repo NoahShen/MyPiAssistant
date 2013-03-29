@@ -39,6 +39,8 @@ getwt[c9] [keys]       (get waiting tasks)
 
 getstp[c10] [keys]     (get stopped tasks)
 
+addtorrent[c11] path   (add bt download task)
+
 getstat[c87]           (get global stat)
 `
 
@@ -54,6 +56,7 @@ var commandMap = map[string]string{
 	"getact":     "c8",
 	"getwt":      "c9",
 	"getstp":     "c10",
+	"addtorrent": "c11",
 	"getstat":    "c87",
 }
 
@@ -64,6 +67,7 @@ type config struct {
 	XmppPwd        string
 	RpcUrl         string
 	RpcVersion     string
+	TorrentDir     string
 }
 
 type PiDownloader struct {
@@ -100,6 +104,9 @@ func loadConfig(configPath string) (*config, error) {
 		return nil, err
 	}
 	if config.UpdateInterval, err = c.GetInt("aria2", "update_interval"); err != nil {
+		return nil, err
+	}
+	if config.TorrentDir, err = c.GetString("aria2", "torrent_dir"); err != nil {
 		return nil, err
 	}
 
@@ -218,6 +225,8 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 		return self.getWaiting(args)
 	case 10:
 		return self.getStopped(args)
+	case 11:
+		return self.addtorrent(args)
 	case 87:
 		return self.getAria2GlobalStat()
 	default:
@@ -229,6 +238,15 @@ func (self *PiDownloader) processCommandNo(number string, args []string) (string
 func (self *PiDownloader) addUri(args []string) (string, error) {
 	uri := args[0]
 	gid, err := aria2rpc.AddUri(uri, nil)
+	if err != nil {
+		return "", err
+	}
+	return "Add successful, gid:" + gid, nil
+}
+
+func (self *PiDownloader) addtorrent(args []string) (string, error) {
+	path := args[0]
+	gid, err := aria2rpc.AddTorrent(self.config.TorrentDir + path)
 	if err != nil {
 		return "", err
 	}
