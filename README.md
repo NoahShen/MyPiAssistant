@@ -1,4 +1,4 @@
-aria2rpc
+MyPiController
 ========
 
-aria2 controller in golang
+controller my raspberry pi downloading by xmpp
