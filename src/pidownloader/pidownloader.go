@@ -19,7 +19,7 @@ var helpMessage = `
 Command:
 The string in [] is command's alias.For example: addUri http..  equals c1 http...
 
-addUri[c1] uri         (add download task)
+add[c1] uri         (add download task)
 
 rm[c2] gid             (remove specific task by gid)
 
@@ -46,7 +46,7 @@ getstat[c87]           (get global stat)
 
 var commandMap = map[string]string{
 	"help":       "c0",
-	"adduri":     "c1",
+	"add":        "c1",
 	"rm":         "c2",
 	"pause":      "c3",
 	"pauseall":   "c4",
