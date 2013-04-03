@@ -259,7 +259,6 @@ func (self *PiDownloader) remove(args []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.Println(gid)
 	return "Remove successful, gid:" + rgid, nil
 }
 
@@ -292,12 +291,6 @@ func (self *PiDownloader) maxspeed(args []string) (string, error) {
 }
 
 func (self *PiDownloader) getActive(args []string) (string, error) {
-	//var keys []string
-	//if args == nil || len(args) == 0 {
-	//	keys = []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
-	//} else {
-	//	keys = args
-	//}
 	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
 	tasks, err := aria2rpc.GetActive(keys)
 	if err != nil {
@@ -307,7 +300,7 @@ func (self *PiDownloader) getActive(args []string) (string, error) {
 }
 
 func (self *PiDownloader) getWaiting(args []string) (string, error) {
-	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
+	keys := []string{"gid", "totalLength", "completedLength", "bittorrent", "files"}
 	tasks, err := aria2rpc.GetWaiting(0, 100, keys)
 	if err != nil {
 		return "", err
@@ -316,7 +309,7 @@ func (self *PiDownloader) getWaiting(args []string) (string, error) {
 }
 
 func (self *PiDownloader) getStopped(args []string) (string, error) {
-	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed", "bittorrent", "files"}
+	keys := []string{"gid", "totalLength", "completedLength", "bittorrent", "files", "status", "errorCode"}
 	tasks, err := aria2rpc.GetStopped(0, 100, keys)
 	if err != nil {
 		return "", err
@@ -332,18 +325,51 @@ func (self *PiDownloader) formatOutput(tasks []map[string]interface{}) (string, 
 	buffer.WriteString("\n")
 	for _, task := range tasks {
 		gid := task["gid"].(string)
-		speed := utils.FormatSizeString(task["downloadSpeed"].(string))
-		completed, _ := strconv.ParseFloat(task["completedLength"].(string), 64)
-		total, _ := strconv.ParseFloat(task["totalLength"].(string), 64)
+		buffer.WriteString(fmt.Sprintf("gid: %s\n", gid))
+
 		title := self.getTitle(task)
-		buffer.WriteString(fmt.Sprintf("gid: %s\ntitle: %s\nspd: %s\nprog: %.2f%%\n", gid, title, speed, completed*100/total))
+		buffer.WriteString(fmt.Sprintf("title: %s\n", title))
+
+		dSpd := task["downloadSpeed"]
+		if dSpd != nil {
+			speed := utils.FormatSizeString(dSpd.(string))
+			buffer.WriteString(fmt.Sprintf("spd: %s\n", speed))
+		}
+
+		total, _ := strconv.ParseFloat(task["totalLength"].(string), 64)
+		totalFmt := utils.FormatSize(int64(total))
+		buffer.WriteString(fmt.Sprintf("total: %s\n", totalFmt))
+
+		completed, _ := strconv.ParseFloat(task["completedLength"].(string), 64)
+		buffer.WriteString(fmt.Sprintf("prog: %.2f%%\n", completed*100/total))
+
+		if dSpd != nil {
+			spd, _ := strconv.Atoi(dSpd.(string))
+			var timeLeftFmt string
+			if spd == 0 {
+				timeLeftFmt = "N/A"
+			} else {
+				timeLeft := int64(total-completed) / int64(spd)
+				timeLeftFmt = utils.FormatTime(timeLeft)
+			}
+			buffer.WriteString(fmt.Sprintf("tiemleft: %s\n", timeLeftFmt))
+		}
+
+		status := task["status"]
+		if status != nil {
+			buffer.WriteString(fmt.Sprintf("status: %s\n", status.(string)))
+		}
+
+		errorCode := task["errorCode"]
+		if status != nil {
+			buffer.WriteString(fmt.Sprintf("statusCode: %s\n", errorCode.(string)))
+		}
 		buffer.WriteString("==================\n")
 	}
 	return buffer.String(), nil
 }
 
 func (self *PiDownloader) getTitle(task map[string]interface{}) string {
-	log.Println(task)
 	// get bt task title
 	bt := task["bittorrent"]
 	if bt != nil {
