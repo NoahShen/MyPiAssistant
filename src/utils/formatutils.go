@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"strconv"
+	"time"
 )
 
 var unitArr = []string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"}
@@ -31,4 +32,8 @@ func FormatFloatString(f string, decimal int) string {
 
 func FormatFloat(f float64, decimal int) string {
 	return fmt.Sprintf("%."+string(decimal)+"f", f)
+}
+
+func FormatTime(sec int64) string {
+	return (time.Duration(sec) * time.Second).String()
 }
