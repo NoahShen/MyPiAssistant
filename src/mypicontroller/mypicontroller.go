@@ -2,9 +2,13 @@ package main
 
 import (
 	"code.google.com/p/goconf/conf"
+	"errors"
 	"flag"
 	"fmt"
+	"log"
 	"pidownloader"
+	"speech2text"
+	"strings"
 	"time"
 	"xmpp"
 )
@@ -36,6 +40,7 @@ type config struct {
 	RpcUrl         string
 	RpcVersion     string
 	TorrentDir     string
+	Confidence     float64
 }
 
 type PiController struct {
@@ -62,6 +67,10 @@ func loadConfig(configPath string) (*config, error) {
 	}
 
 	if config.XmppPwd, err = c.GetString("xmpp", "password"); err != nil {
+		return nil, err
+	}
+
+	if config.Confidence, err = c.GetFloat64("voice", "confidence"); err != nil {
 		return nil, err
 	}
 
@@ -101,7 +110,7 @@ func NewPiController(configPath string) (*PiController, error) {
 
 func (self *PiController) Init() error {
 	//make sure aria2 is running
-	_, statErr := self.piDownloader.Process("getstat")
+	_, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 	if statErr != nil {
 		return statErr
 	}
@@ -141,14 +150,48 @@ func (self *PiController) StopService() {
 
 }
 
+var voiceMap = map[string]string{
+	"帮助":   "c0",
+	"全部停止": "c4",
+	"全部启动": "c6",
+	"下载进度": "c8",
+	"任务统计": "c87",
+}
+
 func (self *PiController) handle(chatMessage xmpp.Chat) {
 	command := chatMessage.Text
+	if strings.HasPrefix(command, "Voice IM:") {
+		voiceUrl := strings.TrimSpace(command[len("Voice IM:"):])
+		text, convertErr := self.convertVoiceToText(voiceUrl)
+		if convertErr != nil {
+			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, convertErr.Error()}
+			self.xmppClient.Send(replyChat)
+			return
+		}
+		comm := voiceMap[text]
+		if comm == "" || len(comm) == 0 {
+			errorMsg := "Can not understand your command[" + text + "]!"
+			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, errorMsg}
+			self.xmppClient.Send(replyChat)
+			return
+		}
+		command = comm
+	}
 	resp, err := self.piDownloader.Process(command)
 	var replyChat *xmpp.Chat
 	if err != nil {
-		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, "error:" + err.Error()}
+		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, err.Error()}
 	} else {
 		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, resp}
 	}
 	self.xmppClient.Send(replyChat)
+}
+
+func (self *PiController) convertVoiceToText(voiceUrl string) (string, error) {
+	text, c, e := speech2text.Speech2Text(voiceUrl)
+	log.Println("speech result: text:", text, "; confidence: ", c, ";error: ", e)
+	if c < self.config.Confidence || e != nil {
+		return "", errors.New("Can not hear what you're saying! Please try again.")
+	}
+	return text, nil
 }

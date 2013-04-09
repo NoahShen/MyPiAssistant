@@ -81,7 +81,7 @@ func (self *PiDownloader) Process(command string) (string, error) {
 		if commandNo != "" && len(commandNo) > 0 {
 			return self.ProcessCommandNo(commandNo[1:], commArr[1:])
 		} else {
-			return "", errors.New("Error command, please type \"help\" for helping information")
+			return "", errors.New("The command[" + command + "] is invalid, please type \"help\" for helping information")
 		}
 	}
 	return "OK", nil
