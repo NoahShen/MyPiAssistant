@@ -122,7 +122,7 @@ func (self *PiController) StartService() {
 		case msg := <-chathandler.GetHandleCh():
 			self.handle(msg.(xmpp.Chat))
 		case <-time.After((time.Duration)(self.config.UpdateInterval) * time.Second):
-			status, statErr := self.piDownloader.ProcessCommandNo("c87")
+			status, statErr := self.piDownloader.ProcessCommandNo("c87", nil)
 			if statErr != nil {
 				self.xmppClient.Send(statErr.Error())
 			} else {
