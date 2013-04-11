@@ -5,6 +5,7 @@ import (
 	"flag"
 	l4g "log4go"
 	"pidownloader"
+	"runtime"
 	"speech2text"
 	"strings"
 	"time"
@@ -17,8 +18,11 @@ var (
 )
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	flag.Parse()
 	l4g.LoadConfiguration(*logConfig)
+	l4g.Debug("MAXPROCS: %d", runtime.GOMAXPROCS(0))
 	piController, err := NewPiController(*configPath) //"../config/pidownloader.conf"
 	if err != nil {
 		return
@@ -46,6 +50,7 @@ type PiController struct {
 	xmppClient   *xmpp.XmppClient
 	config       *config
 	stopCh       chan int
+	chathandler  xmpp.Handler
 }
 
 func loadConfig(configPath string) (*config, error) {
@@ -128,11 +133,17 @@ func (self *PiController) Init() error {
 
 func (self *PiController) StartService() {
 	l4g.Info("Start service!")
-	chathandler := xmpp.NewChatHandler()
-	self.xmppClient.AddHandler(chathandler)
+	state, statErr := self.piDownloader.ProcessCommandNo("87", nil)
+	if statErr != nil {
+		self.xmppClient.Send(statErr.Error())
+	} else {
+		self.xmppClient.Send(state)
+	}
+	self.chathandler = xmpp.NewChatHandler()
+	self.xmppClient.AddHandler(self.chathandler)
 	for {
 		select {
-		case msg := <-chathandler.GetHandleCh():
+		case msg := <-self.chathandler.GetHandleCh():
 			self.handle(msg.(xmpp.Chat))
 		case <-time.After((time.Duration)(self.config.UpdateInterval) * time.Second):
 			status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
@@ -149,6 +160,7 @@ func (self *PiController) StartService() {
 }
 
 func (self *PiController) StopService() {
+	self.xmppClient.RemoveHandler(self.chathandler)
 	self.xmppClient.Disconnect()
 	self.stopCh <- 1
 
