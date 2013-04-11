@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
+	l4g "log4go"
 	"path"
 	"strconv"
 	"strings"
@@ -69,7 +69,7 @@ func NewPidownloader(rpcUrl, torrentDir string) (*PiDownloader, error) {
 }
 
 func (self *PiDownloader) Process(command string) (string, error) {
-	log.Println("receive command:", command)
+	l4g.Debug("Receive command: %s", command)
 	commArr := strings.Split(command, " ")
 	comm := commArr[0]
 	if strings.HasPrefix(comm, "c") {
@@ -77,7 +77,7 @@ func (self *PiDownloader) Process(command string) (string, error) {
 	} else {
 		c := strings.ToLower(comm)
 		commandNo := commandMap[c]
-		log.Println("mapped command no:", commandNo)
+		l4g.Debug("Mapping command no: %s", commandNo)
 		if commandNo != "" && len(commandNo) > 0 {
 			return self.ProcessCommandNo(commandNo[1:], commArr[1:])
 		} else {
@@ -320,8 +320,7 @@ func (self *PiDownloader) unpauseAll() (string, error) {
 func (self *PiDownloader) getAria2GlobalStat() (string, error) {
 	globalStat, err := aria2rpc.GetGlobalStat()
 	if err != nil {
-		log.Println("GetGlobalStat error:", err)
-		return "", nil
+		return "", err
 	}
 	speed := utils.FormatSizeString(globalStat["downloadSpeed"].(string))
 	numActive := globalStat["numActive"].(string)
