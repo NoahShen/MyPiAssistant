@@ -21,7 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	l4g "log4go"
 	"net"
 	"net/http"
 	"net/url"
@@ -236,7 +236,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 		if err != nil {
 			return Chat{}, err
 		}
-		log.Println("receive msg:", val)
+		l4g.Debug("Receive xmpp msg: %v", val)
 		switch v := val.(type) {
 		case *clientMessage:
 			return Chat{v.From, v.Type, v.Body}, nil
@@ -249,7 +249,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 
 // Send sends message text.
 func (c *Client) Send(msg interface{}) {
-	log.Println("Send message:", msg)
+	l4g.Debug("Send xmpp msg: %v", msg)
 	switch v := msg.(type) {
 	case *Chat:
 		fmt.Fprintf(c.tls, "<message to='%s' type='%s' xml:lang='en'>"+
@@ -389,7 +389,7 @@ func nextStart(p *xml.Decoder) (xml.StartElement, error) {
 	for {
 		t, err := p.Token()
 		if err != nil {
-			log.Fatal("token", err)
+			l4g.Error("Parsing xml error: %v", err)
 		}
 		switch t := t.(type) {
 		case xml.StartElement:

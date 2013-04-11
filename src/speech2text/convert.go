@@ -2,7 +2,6 @@ package speech2text
 
 import (
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,11 +11,10 @@ import (
 
 func mp3ToFlac(mp3File string) (string, error) {
 	flacPath, _ := filepath.Abs(utils.RandomString(7) + ".flac")
-	output, convertErr := exec.Command("ffmpeg", "-i", mp3File, flacPath).Output()
+	_, convertErr := exec.Command("ffmpeg", "-i", mp3File, flacPath).Output()
 	if convertErr != nil {
 		return "", convertErr
 	}
-	log.Println("convert output: ", string(output))
 	return flacPath, nil
 }
 
