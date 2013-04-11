@@ -2,10 +2,8 @@ package main
 
 import (
 	"code.google.com/p/goconf/conf"
-	"errors"
 	"flag"
-	"fmt"
-	"log"
+	l4g "log4go"
 	"pidownloader"
 	"speech2text"
 	"strings"
@@ -14,19 +12,19 @@ import (
 )
 
 var (
-	configpath = flag.String("configpath", "", "path of config file")
+	logConfig  = flag.String("log-config", "", "path of config file")
+	configPath = flag.String("config-path", "", "path of config file")
 )
 
 func main() {
 	flag.Parse()
-	piController, err := NewPiController(*configpath) //"../config/pidownloader.conf"
+	l4g.LoadConfiguration(*logConfig)
+	piController, err := NewPiController(*configPath) //"../config/pidownloader.conf"
 	if err != nil {
-		fmt.Println("start error:", err)
 		return
 	}
 
 	if initErr := piController.Init(); initErr != nil {
-		fmt.Println("init error:", initErr)
 		return
 	}
 	piController.StartService()
@@ -92,12 +90,15 @@ func loadConfig(configPath string) (*config, error) {
 }
 
 func NewPiController(configPath string) (*PiController, error) {
+	l4g.Info("Loading config file: %s", configPath)
 	config, configErr := loadConfig(configPath)
 	if configErr != nil {
+		l4g.Error("Load config error: %v", configErr)
 		return nil, configErr
 	}
 	piDer, err := pidownloader.NewPidownloader(config.RpcUrl, config.TorrentDir)
 	if err != nil {
+		l4g.Error("Create PiDownloader error: %v", err)
 		return nil, err
 	}
 
@@ -109,21 +110,24 @@ func NewPiController(configPath string) (*PiController, error) {
 }
 
 func (self *PiController) Init() error {
-	//make sure aria2 is running
 	_, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 	if statErr != nil {
+		l4g.Error("Call aria2 error: %v", statErr)
 		return statErr
 	}
+	l4g.Info("Call aria2 successful!")
 	// connect xmpp server
 	xmppErr := self.xmppClient.Connect(self.config.XmppHost, self.config.XmppUser, self.config.XmppPwd)
 	if xmppErr != nil {
+		l4g.Error("Connect xmpp server error: %v", xmppErr)
 		return xmppErr
 	}
+	l4g.Info("Xmpp is connected!")
 	return nil
 }
 
 func (self *PiController) StartService() {
-
+	l4g.Info("Start service!")
 	chathandler := xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(chathandler)
 	for {
@@ -161,10 +165,18 @@ var voiceMap = map[string]string{
 func (self *PiController) handle(chatMessage xmpp.Chat) {
 	command := chatMessage.Text
 	if strings.HasPrefix(command, "Voice IM:") {
+		l4g.Debug("Receive voice message!")
 		voiceUrl := strings.TrimSpace(command[len("Voice IM:"):])
-		text, convertErr := self.convertVoiceToText(voiceUrl)
+		text, understand, convertErr := self.convertVoiceToText(voiceUrl)
 		if convertErr != nil {
+			l4g.Error("Convert voice to text failed: %s", convertErr.Error())
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, convertErr.Error()}
+			self.xmppClient.Send(replyChat)
+			return
+		}
+		if !understand {
+			msg := "Can not hear what you're saying! Please try again."
+			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
 			self.xmppClient.Send(replyChat)
 			return
 		}
@@ -175,6 +187,7 @@ func (self *PiController) handle(chatMessage xmpp.Chat) {
 			self.xmppClient.Send(replyChat)
 			return
 		}
+		l4g.Debug("voice text ==> command :%s ===> %s", text, comm)
 		command = comm
 	}
 	resp, err := self.piDownloader.Process(command)
@@ -187,11 +200,10 @@ func (self *PiController) handle(chatMessage xmpp.Chat) {
 	self.xmppClient.Send(replyChat)
 }
 
-func (self *PiController) convertVoiceToText(voiceUrl string) (string, error) {
+func (self *PiController) convertVoiceToText(voiceUrl string) (string, bool, error) {
 	text, c, e := speech2text.Speech2Text(voiceUrl)
-	log.Println("speech result: text:", text, "; confidence: ", c, ";error: ", e)
 	if c < self.config.Confidence || e != nil {
-		return "", errors.New("Can not hear what you're saying! Please try again.")
+		return "", false, e
 	}
-	return text, nil
+	return text, true, nil
 }

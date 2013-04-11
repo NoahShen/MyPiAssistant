@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
-	"log"
+	l4g "log4go"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -30,7 +30,7 @@ type hypotheses struct {
 }
 
 func Speech2Text(voiceUrl string) (string, float64, error) {
-	log.Println("Downloading file: ", voiceUrl)
+	l4g.Debug("Downloading file: %s", voiceUrl)
 	voiceFilePath, downloadFileErr := downloadFile(voiceUrl)
 	defer os.Remove(voiceFilePath)
 	if downloadFileErr != nil {
@@ -40,7 +40,7 @@ func Speech2Text(voiceUrl string) (string, float64, error) {
 	voiceFmt := filepath.Ext(voiceUrl)
 	switch strings.ToLower(voiceFmt) {
 	case ".mp3":
-		log.Println("Voice format is mp3, convert to flac")
+		l4g.Debug("Voice format is mp3, starting convert to flac")
 		p, convertErr := mp3ToFlac(voiceFilePath)
 		if convertErr != nil {
 			return "", 0, convertErr
@@ -75,7 +75,7 @@ func convertToText(voiceFile string) (string, float64, error) {
 	if readErr != nil {
 		return "", 0, readErr
 	}
-	log.Println(string(bytes))
+	l4g.Debug("Speech response json: %s", strings.TrimSpace(string(bytes)))
 	speechResult := &speechRespJson{}
 	if unmarshalErr := json.Unmarshal(bytes, speechResult); unmarshalErr != nil {
 		return "", 0, unmarshalErr
