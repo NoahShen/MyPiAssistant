@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	l4g "log4go"
+	l4g "code.google.com/p/log4go"
 	"runtime"
 	"testing"
 )
