@@ -2,11 +2,11 @@ package speech2text
 
 import (
 	"bytes"
+	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
-	l4g "log4go"
 	"mime/multipart"
 	"net/http"
 	"os"
