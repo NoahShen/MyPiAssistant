@@ -2,8 +2,8 @@ package main
 
 import (
 	"code.google.com/p/goconf/conf"
+	l4g "code.google.com/p/log4go"
 	"flag"
-	l4g "log4go"
 	"pidownloader"
 	"runtime"
 	"speech2text"
@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	logConfig  = flag.String("log-config", "", "path of config file")
+	logConfig  = flag.String("log-config", "", "path of log config file")
 	configPath = flag.String("config-path", "", "path of config file")
 )
 
