@@ -81,7 +81,7 @@ func convertToText(voiceFile string) (string, float64, error) {
 		return "", 0, unmarshalErr
 	}
 	if speechResult.Status != 0 {
-		return "", 0, errors.New("speech2text errror!")
+		return "", 0, errors.New("speech2text error!")
 	}
 	h := speechResult.Hypotheses[0]
 	return h.Utterance, h.Confidence, nil

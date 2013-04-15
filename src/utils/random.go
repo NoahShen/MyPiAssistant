@@ -22,6 +22,11 @@ func RandomString(l int) string {
 	return result.String()
 }
 
+func RandomFloat32() float32 {
+	rand.Seed(time.Now().UTC().UnixNano())
+	return rand.Float32()
+}
+
 func randChar() string {
 	rand.Seed(time.Now().UTC().UnixNano())
 	return string(alpha[rand.Intn(len(alpha)-1)])
