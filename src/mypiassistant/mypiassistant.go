@@ -141,18 +141,27 @@ func (self *PiController) StartService() {
 	}
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
+
+	lastUpdate := time.Now()
 	for {
+		// calculate next update status time
+		escaped := time.Since(lastUpdate)
+		updateAfter := time.Duration(self.config.UpdateInterval)*time.Second - escaped
+		if updateAfter < 0 {
+			updateAfter = 0
+		}
+		l4g.Debug("updateAfter: %v", updateAfter)
 		select {
 		case msg := <-self.chathandler.GetHandleCh():
 			self.handle(msg.(xmpp.Chat))
-		case <-time.After((time.Duration)(self.config.UpdateInterval) * time.Second):
+		case <-time.After(updateAfter):
 			status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 			if statErr != nil {
 				self.xmppClient.Send(statErr.Error())
 			} else {
 				self.xmppClient.Send(status)
 			}
-
+			lastUpdate = time.Now()
 		case <-self.stopCh:
 			break
 		}
