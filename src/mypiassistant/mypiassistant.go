@@ -4,11 +4,11 @@ import (
 	"code.google.com/p/goconf/conf"
 	l4g "code.google.com/p/log4go"
 	"flag"
+	"github.com/robfig/cron"
 	"pidownloader"
 	"runtime"
 	"speech2text"
 	"strings"
-	"time"
 	"xmpp"
 )
 
@@ -23,34 +23,35 @@ func main() {
 	flag.Parse()
 	l4g.LoadConfiguration(*logConfig)
 	l4g.Debug("MAXPROCS: %d", runtime.GOMAXPROCS(0))
-	piController, err := NewPiController(*configPath) //"../config/pidownloader.conf"
+	piAssistant, err := NewPiAssistant(*configPath) //"../config/pidownloader.conf"
 	if err != nil {
 		return
 	}
 
-	if initErr := piController.Init(); initErr != nil {
+	if initErr := piAssistant.Init(); initErr != nil {
 		return
 	}
-	piController.StartService()
+	piAssistant.StartService()
 }
 
 type config struct {
-	UpdateInterval int
-	XmppHost       string
-	XmppUser       string
-	XmppPwd        string
-	RpcUrl         string
-	RpcVersion     string
-	TorrentDir     string
-	Confidence     float64
+	UpdateCron string
+	XmppHost   string
+	XmppUser   string
+	XmppPwd    string
+	RpcUrl     string
+	RpcVersion string
+	TorrentDir string
+	Confidence float64
 }
 
-type PiController struct {
+type PiAssistant struct {
 	piDownloader *pidownloader.PiDownloader
 	xmppClient   *xmpp.XmppClient
 	config       *config
 	stopCh       chan int
 	chathandler  xmpp.Handler
+	cron         *cron.Cron
 }
 
 func loadConfig(configPath string) (*config, error) {
@@ -84,7 +85,7 @@ func loadConfig(configPath string) (*config, error) {
 	if config.RpcVersion, err = c.GetString("aria2", "rpc_version"); err != nil {
 		return nil, err
 	}
-	if config.UpdateInterval, err = c.GetInt("aria2", "update_interval"); err != nil {
+	if config.UpdateCron, err = c.GetString("aria2", "update_cron"); err != nil {
 		return nil, err
 	}
 	if config.TorrentDir, err = c.GetString("aria2", "torrent_dir"); err != nil {
@@ -94,7 +95,7 @@ func loadConfig(configPath string) (*config, error) {
 	return config, nil
 }
 
-func NewPiController(configPath string) (*PiController, error) {
+func NewPiAssistant(configPath string) (*PiAssistant, error) {
 	l4g.Info("Loading config file: %s", configPath)
 	config, configErr := loadConfig(configPath)
 	if configErr != nil {
@@ -107,14 +108,18 @@ func NewPiController(configPath string) (*PiController, error) {
 		return nil, err
 	}
 
-	pi := &PiController{}
+	pi := &PiAssistant{}
 	pi.config = config
 	pi.piDownloader = piDer
 	pi.xmppClient = xmpp.NewXmppClient()
+	pi.cron = cron.New()
+	pi.cron.AddFunc(pi.config.UpdateCron, func() {
+		pi.updateDownloadStat()
+	})
 	return pi, nil
 }
 
-func (self *PiController) Init() error {
+func (self *PiAssistant) Init() error {
 	_, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 	if statErr != nil {
 		l4g.Error("Call aria2 error: %v", statErr)
@@ -128,49 +133,38 @@ func (self *PiController) Init() error {
 		return xmppErr
 	}
 	l4g.Info("Xmpp is connected!")
+	self.cron.Start()
 	return nil
 }
 
-func (self *PiController) StartService() {
-	l4g.Info("Start service!")
-	state, statErr := self.piDownloader.ProcessCommandNo("87", nil)
+func (self *PiAssistant) updateDownloadStat() {
+	l4g.Debug("updateDownloadStat!")
+	status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 	if statErr != nil {
 		self.xmppClient.Send(statErr.Error())
 	} else {
-		self.xmppClient.Send(state)
+		self.xmppClient.Send(status)
 	}
+}
+func (self *PiAssistant) StartService() {
+	l4g.Info("Start service!")
+	self.updateDownloadStat()
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
-
-	lastUpdate := time.Now()
 	for {
-		// calculate next update status time
-		escaped := time.Since(lastUpdate)
-		updateAfter := time.Duration(self.config.UpdateInterval)*time.Second - escaped
-		if updateAfter < 0 {
-			updateAfter = 0
-		}
-		l4g.Debug("updateAfter: %v", updateAfter)
 		select {
 		case msg := <-self.chathandler.GetHandleCh():
 			self.handle(msg.(xmpp.Chat))
-		case <-time.After(updateAfter):
-			status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
-			if statErr != nil {
-				self.xmppClient.Send(statErr.Error())
-			} else {
-				self.xmppClient.Send(status)
-			}
-			lastUpdate = time.Now()
 		case <-self.stopCh:
 			break
 		}
 	}
 }
 
-func (self *PiController) StopService() {
+func (self *PiAssistant) StopService() {
 	self.xmppClient.RemoveHandler(self.chathandler)
 	self.xmppClient.Disconnect()
+	self.cron.Stop()
 	self.stopCh <- 1
 
 }
@@ -183,7 +177,7 @@ var voiceMap = map[string]string{
 	"任务统计": "c87",
 }
 
-func (self *PiController) handle(chatMessage xmpp.Chat) {
+func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	command := chatMessage.Text
 	if strings.HasPrefix(command, "Voice IM:") {
 		l4g.Debug("Receive voice message!")
@@ -221,7 +215,7 @@ func (self *PiController) handle(chatMessage xmpp.Chat) {
 	self.xmppClient.Send(replyChat)
 }
 
-func (self *PiController) convertVoiceToText(voiceUrl string) (string, bool, error) {
+func (self *PiAssistant) convertVoiceToText(voiceUrl string) (string, bool, error) {
 	text, c, e := speech2text.Speech2Text(voiceUrl)
 	if c < self.config.Confidence || e != nil {
 		return "", false, e

@@ -9,14 +9,14 @@ import (
 func TestPiDownloader(t *testing.T) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	l4g.LoadConfiguration("../config/logConfig.xml")
-	piController, err := NewPiController("../config/pidownloader.conf")
+	piAssistant, err := NewPiAssistant("../config/pidownloader.conf")
 	if err != nil {
 		t.Fatal("start error:", err)
 		return
 	}
 
-	if initErr := piController.Init(); initErr != nil {
+	if initErr := piAssistant.Init(); initErr != nil {
 		t.Fatal("init error:", initErr)
 	}
-	piController.StartService()
+	piAssistant.StartService()
 }
