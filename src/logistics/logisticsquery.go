@@ -36,6 +36,7 @@ func Query(com, logisticsId string) (*LogisticsInfo, error) {
 	url := fmt.Sprintf(QUERY_URL, com, logisticsId, utils.RandomFloat32)
 	queryReq, _ := http.NewRequest("GET", url, nil)
 	queryReq.Header.Set("Accept", "*/*")
+	queryReq.Header.Set("Referer", "http://www.kuaidi100.com/")
 	queryReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 6.1; WOW64; rv:17.0) Gecko/20100101 Firefox/17.0")
 	queryReq.Header.Set("X-Requested-With", "XMLHttpRequest")
 	queryResp, queryErr := http.DefaultClient.Do(queryReq)

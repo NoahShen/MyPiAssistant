@@ -4,26 +4,15 @@ import (
 	"testing"
 )
 
-func NoTestAddLogisticsInfo(t *testing.T) {
+func NoTestSaveLogisticsInfo(t *testing.T) {
 	db, err := NewLogisticsDb("../../db/pilogistics.db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	logisticsInfoEntity := &LogisticsInfoEntity{LogisticsId: "668031148649", Company: "shentong"}
-	l, addErr := db.AddLogisticsInfo(logisticsInfoEntity)
+	logisticsInfoEntity := &LogisticsInfoEntity{0, "668031148649", "shentong", -1, "", -1}
+	addErr := db.SaveLogisticsInfo(logisticsInfoEntity)
 	if addErr != nil {
 		t.Fatal(addErr)
 	}
-	t.Log("logistic info:", l)
-}
-
-func TestUpdateLogisticsRecords(t *testing.T) {
-	db, err := NewLogisticsDb("../../db/pilogistics.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	updateErr := db.UpdateLogisticsStatus(1)
-	if updateErr != nil {
-		t.Fatal(updateErr)
-	}
+	t.Log("logistic info:", logisticsInfoEntity)
 }
