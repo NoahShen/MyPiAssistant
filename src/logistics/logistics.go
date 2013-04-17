@@ -1,12 +1,31 @@
 package logistics
 
 import (
+	"bytes"
 	l4g "code.google.com/p/log4go"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
+
+type byTime []LogisticsRecordEntity
+
+func (s byTime) Len() int {
+	return len(s)
+}
+
+func (s byTime) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s byTime) Less(i, j int) bool {
+	return s[i].Time < s[j].Time
+}
+
+type processFunc func(*LogisticsService, string, []string) (string, error)
 
 type ChangedLogisticInfo struct {
 	Username   string
@@ -15,6 +34,7 @@ type ChangedLogisticInfo struct {
 
 type LogisticsService struct {
 	logisticsdb *LogisticsDb
+	commandMap  map[string]processFunc
 }
 
 func NewLogisticsService(dbFile string) (*LogisticsService, error) {
@@ -22,13 +42,85 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 	if dbOpenErr != nil {
 		return nil, dbOpenErr
 	}
+	l4g.Debug("Open logistics DB successful: %s", dbFile)
 	service := &LogisticsService{}
 	service.logisticsdb = db
+
+	service.commandMap = map[string]processFunc{
+		"sublogi":   (*LogisticsService).sublogi,
+		"unsublogi": (*LogisticsService).unsublogi,
+		"getlogi":   (*LogisticsService).getlogi,
+	}
 	return service, nil
 }
 
 func (self *LogisticsService) Close() error {
 	return self.logisticsdb.Close()
+}
+
+func (self *LogisticsService) CheckCommandType(command string) bool {
+	commArr := strings.Split(command, " ")
+	comm := commArr[0]
+	c := strings.ToLower(comm)
+	for commandKey, _ := range self.commandMap {
+		if strings.HasPrefix(c, commandKey) {
+			l4g.Debug("[%s] is logistic command", command)
+			return true
+		}
+	}
+	return false
+}
+
+func (self *LogisticsService) Process(username, command string) (string, error) {
+	commArr := strings.Split(command, " ")
+	comm := commArr[0]
+	f := self.commandMap[comm]
+	if f == nil {
+		return "", errors.New("Invalided logistic command!")
+	}
+	return f(self, username, commArr[1:])
+}
+func (self *LogisticsService) sublogi(username string, args []string) (string, error) {
+	company := args[0]
+	logisticsId := args[1]
+	logisticsName := args[2]
+	if err := self.SubscribeLogistics(username, logisticsId, company, logisticsName); err != nil {
+		return "", err
+	}
+	return "OK", nil
+}
+
+func (self *LogisticsService) unsublogi(username string, args []string) (string, error) {
+	company := args[0]
+	logisticsId := args[1]
+	if err := self.UnsubscribeLogistics(username, logisticsId, company); err != nil {
+		return "", err
+	}
+	return "OK", nil
+}
+
+func (self *LogisticsService) getlogi(username string, args []string) (string, error) {
+	company := args[0]
+	logisticsId := args[1]
+	recordEntities, err := self.GetCurrentLogistics(logisticsId, company)
+	if err != nil {
+		return "", err
+	}
+	return self.formatLogiOutput(recordEntities), nil
+}
+
+func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) string {
+	if len(records) == 0 {
+		return "no records"
+	}
+	var buffer bytes.Buffer
+	buffer.WriteString("\n")
+	for _, record := range records {
+		message := record.Context
+		fTime := time.Unix(record.Time, 0).Format("2006-01-02 15:04:05")
+		buffer.WriteString(fmt.Sprintf("%s  %s\n", fTime, message))
+	}
+	return buffer.String()
 }
 
 func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company, logisticsName string) error {
@@ -50,6 +142,7 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 	if ref == nil {
 		ref = &UserLogisticsRef{0, username, l.Id, logisticsName, 1}
 	}
+	ref.LogisticsName = logisticsName
 	ref.Subscribe = 1
 	saveErr := self.logisticsdb.SaveUserLogisticsRef(ref)
 	if saveErr != nil {
@@ -97,6 +190,7 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 					entity.LogisticsId, entity.Company)
 				continue
 			}
+			sort.Sort(byTime(newRecords))
 			userRefs, getRefsErr := self.logisticsdb.GetUserLogisticsRefs(entity.Id)
 			if getRefsErr != nil {
 				l4g.Error("GetUserLogisticsRefs error: %v", getRefsErr)
@@ -172,6 +266,7 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 		if err != nil {
 			return []LogisticsRecordEntity{}, err
 		}
+		sort.Sort(byTime(records))
 		return records, nil
 	}
 
@@ -185,11 +280,15 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 	var records []LogisticsRecordEntity
 	for _, rec := range logisticsInfo.Data {
 		recTime, _ := time.Parse("2006-01-02 15:04:05", rec.Time)
+		recTime.In(time.Now().Location())
 		rT := recTime.Unix()
+
+		l4g.Debug("origin Time: %s, timeobj: %v, parse: %d, ", rec.Time, recTime, rT)
 		recEntity := LogisticsRecordEntity{
 			Context: rec.Context,
 			Time:    rT}
 		records = append(records, recEntity)
 	}
+	sort.Sort(byTime(records))
 	return records, nil
 }

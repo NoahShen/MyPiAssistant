@@ -5,6 +5,7 @@ import (
 	l4g "code.google.com/p/log4go"
 	"flag"
 	"github.com/robfig/cron"
+	"logistics"
 	"pidownloader"
 	"runtime"
 	"speech2text"
@@ -35,23 +36,25 @@ func main() {
 }
 
 type config struct {
-	UpdateCron string
-	XmppHost   string
-	XmppUser   string
-	XmppPwd    string
-	RpcUrl     string
-	RpcVersion string
-	TorrentDir string
-	Confidence float64
+	UpdateCron      string
+	XmppHost        string
+	XmppUser        string
+	XmppPwd         string
+	RpcUrl          string
+	RpcVersion      string
+	TorrentDir      string
+	Confidence      float64
+	LogisticsDbFile string
 }
 
 type PiAssistant struct {
-	piDownloader *pidownloader.PiDownloader
-	xmppClient   *xmpp.XmppClient
-	config       *config
-	stopCh       chan int
-	chathandler  xmpp.Handler
-	cron         *cron.Cron
+	piDownloader     *pidownloader.PiDownloader
+	xmppClient       *xmpp.XmppClient
+	config           *config
+	stopCh           chan int
+	chathandler      xmpp.Handler
+	logisticsService *logistics.LogisticsService
+	cron             *cron.Cron
 }
 
 func loadConfig(configPath string) (*config, error) {
@@ -91,7 +94,9 @@ func loadConfig(configPath string) (*config, error) {
 	if config.TorrentDir, err = c.GetString("aria2", "torrent_dir"); err != nil {
 		return nil, err
 	}
-
+	if config.LogisticsDbFile, err = c.GetString("logistics", "db_file"); err != nil {
+		return nil, err
+	}
 	return config, nil
 }
 
@@ -107,23 +112,28 @@ func NewPiAssistant(configPath string) (*PiAssistant, error) {
 		l4g.Error("Create PiDownloader error: %v", err)
 		return nil, err
 	}
+	logisticsService, logiErr := logistics.NewLogisticsService(config.LogisticsDbFile)
+	if logiErr != nil {
+		l4g.Error("Create LogisticService error: %v", logiErr)
+		return nil, err
+	}
 
 	pi := &PiAssistant{}
 	pi.config = config
 	pi.piDownloader = piDer
 	pi.xmppClient = xmpp.NewXmppClient()
+	pi.logisticsService = logisticsService
 	pi.cron = cron.New()
-
 	return pi, nil
 }
 
 func (self *PiAssistant) Init() error {
-	_, statErr := self.piDownloader.ProcessCommandNo("87", nil)
+	_, statErr := self.piDownloader.Process("", "getstat")
 	if statErr != nil {
 		l4g.Error("Call aria2 error: %v", statErr)
 		return statErr
 	}
-	l4g.Info("Call aria2 successful!")
+	l4g.Info("Aria2 is running!")
 	// connect xmpp server
 	xmppErr := self.xmppClient.Connect(self.config.XmppHost, self.config.XmppUser, self.config.XmppPwd)
 	if xmppErr != nil {
@@ -139,7 +149,7 @@ func (self *PiAssistant) Init() error {
 }
 
 func (self *PiAssistant) updateDownloadStat() {
-	status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
+	status, statErr := self.piDownloader.Process("", "getstat")
 	if statErr != nil {
 		l4g.Error("Get download stat error: %v", statErr)
 		self.xmppClient.Send(statErr.Error())
@@ -174,11 +184,11 @@ func (self *PiAssistant) StopService() {
 }
 
 var voiceMap = map[string]string{
-	"帮助":   "c0",
-	"全部停止": "c4",
-	"全部启动": "c6",
-	"下载进度": "c8",
-	"任务统计": "c87",
+	"帮助":   "help",
+	"全部停止": "pauseall",
+	"全部启动": "unpauseall",
+	"下载进度": "getact",
+	"任务统计": "getstat",
 }
 
 func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
@@ -186,14 +196,14 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	if strings.HasPrefix(command, "Voice IM:") {
 		l4g.Debug("Receive voice message!")
 		voiceUrl := strings.TrimSpace(command[len("Voice IM:"):])
-		text, understand, convertErr := self.convertVoiceToText(voiceUrl)
+		text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
 		if convertErr != nil {
 			l4g.Error("Convert voice to text failed: %s", convertErr.Error())
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, convertErr.Error()}
 			self.xmppClient.Send(replyChat)
 			return
 		}
-		if !understand {
+		if !hasConfidence {
 			msg := "Can not hear what you're saying! Please try again."
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
 			self.xmppClient.Send(replyChat)
@@ -206,12 +216,28 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 			self.xmppClient.Send(replyChat)
 			return
 		}
-		l4g.Debug("voice text ==> command :%s ===> %s", text, comm)
+		l4g.Debug("voice text ===> command :%s ===> %s", text, comm)
 		command = comm
 	}
-	resp, err := self.piDownloader.Process(command)
+	command = strings.TrimSpace(command)
+	l4g.Debug("Receive command from [%s]: %s", chatMessage.Remote, command)
+
+	var resp string
+	var err error
+	invalidedCommand := false
+	switch {
+	case self.piDownloader.CheckCommandType(command):
+		resp, err = self.piDownloader.Process(chatMessage.Remote, command)
+	case self.logisticsService.CheckCommandType(command):
+		resp, err = self.logisticsService.Process(chatMessage.Remote, command)
+	default:
+		invalidedCommand = true
+	}
 	var replyChat *xmpp.Chat
-	if err != nil {
+	if invalidedCommand {
+		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type,
+			"Invalided command, please type \"help\" for helping information"}
+	} else if err != nil {
 		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, err.Error()}
 	} else {
 		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, resp}

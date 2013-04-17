@@ -47,11 +47,14 @@ func NoTestGetCurrentLogistics(t *testing.T) {
 		t.Fatal(err)
 	}
 	//records, getErr := service.GetCurrentLogistics("1200722815552", "yunda")
-	records, getErr := service.GetCurrentLogistics("668031148649", "shentong")
+	//records, getErr := service.GetCurrentLogistics("668031148649", "shentong")
+	records, getErr := service.GetCurrentLogistics("966053314784", "shunfeng")
 	if getErr != nil {
 		t.Fatal(getErr)
 	}
-	t.Log("records:", records)
+	for _, rec := range records {
+		t.Log(rec)
+	}
 }
 
 func TestUpdateAndGetChangedLogistics(t *testing.T) {
@@ -63,7 +66,10 @@ func TestUpdateAndGetChangedLogistics(t *testing.T) {
 	logisticsCh := make(chan *ChangedLogisticInfo, 1)
 	go service.UpdateAndGetChangedLogistics(logisticsCh)
 	for changedInfo := range logisticsCh {
-		t.Log("changedInfo:", changedInfo)
+		t.Log("username:", changedInfo.Username)
+		for _, rec := range changedInfo.NewRecords {
+			t.Log(rec)
+		}
 	}
 
 }
