@@ -1,6 +1,7 @@
 package logistics
 
 import (
+	l4g "code.google.com/p/log4go"
 	"testing"
 )
 
@@ -54,6 +55,7 @@ func NoTestGetCurrentLogistics(t *testing.T) {
 }
 
 func TestUpdateAndGetChangedLogistics(t *testing.T) {
+	l4g.LoadConfiguration("../config/logConfig.xml")
 	service, err := NewLogisticsService("../../db/pilogistics.db")
 	if err != nil {
 		t.Fatal(err)

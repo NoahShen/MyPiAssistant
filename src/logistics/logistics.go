@@ -91,7 +91,10 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 				l4g.Error("UpdateLogisticsProgress error: %v", updateErr)
 				continue
 			}
-			if len(newRecords) == 0 {
+			recLen := len(newRecords)
+			if recLen == 0 {
+				l4g.Debug("no new records in logistics id:%s, com: %s",
+					entity.LogisticsId, entity.Company)
 				continue
 			}
 			userRefs, getRefsErr := self.logisticsdb.GetUserLogisticsRefs(entity.Id)
@@ -105,7 +108,9 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 			}
 
 		}
-		if len(entities) < limit { // no more logistics need to be updated
+		l := len(entities)
+		if l < limit { // no more logistics need to be updated
+			l4g.Debug("no more logistics: %d", l)
 			return
 		}
 	}
