@@ -16,17 +16,17 @@ func NoTestSubscribeLogistics(t *testing.T) {
 	t.Log("Subscribe successful!")
 }
 
-func NoTestUpdateLogisticsRecords(t *testing.T) {
-	service, err := NewLogisticsService("../../db/pilogistics.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	newRecords, updateErr := service.updateLogisticsProgress(1)
-	if updateErr != nil {
-		t.Fatal(updateErr)
-	}
-	t.Log("newRecords:", newRecords)
-}
+//func NoTestUpdateLogisticsRecords(t *testing.T) {
+//	service, err := NewLogisticsService("../../db/pilogistics.db")
+//	if err != nil {
+//		t.Fatal(err)
+//	}
+//	newRecords, updateErr := service.updateLogisticsProgress(1)
+//	if updateErr != nil {
+//		t.Fatal(updateErr)
+//	}
+//	t.Log("newRecords:", newRecords)
+//}
 
 func NoTestUnsubscribeLogistics(t *testing.T) {
 	service, err := NewLogisticsService("../../db/pilogistics.db")
@@ -40,7 +40,7 @@ func NoTestUnsubscribeLogistics(t *testing.T) {
 	t.Log("Unsubscribe successful!")
 }
 
-func TestGetCurrentLogistics(t *testing.T) {
+func NoTestGetCurrentLogistics(t *testing.T) {
 	service, err := NewLogisticsService("../../db/pilogistics.db")
 	if err != nil {
 		t.Fatal(err)
@@ -51,4 +51,17 @@ func TestGetCurrentLogistics(t *testing.T) {
 		t.Fatal(getErr)
 	}
 	t.Log("records:", records)
+}
+
+func TestUpdateAndGetChangedLogistics(t *testing.T) {
+	service, err := NewLogisticsService("../../db/pilogistics.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logisticsCh := make(chan *ChangedLogisticInfo, 1)
+	go service.UpdateAndGetChangedLogistics(logisticsCh)
+	for changedInfo := range logisticsCh {
+		t.Log("changedInfo:", changedInfo)
+	}
+
 }

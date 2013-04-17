@@ -1,11 +1,17 @@
 package logistics
 
 import (
+	l4g "code.google.com/p/log4go"
 	"errors"
 	"fmt"
 	"strconv"
 	"time"
 )
+
+type ChangedLogisticInfo struct {
+	Username   string
+	NewRecords []LogisticsRecordEntity
+}
 
 type LogisticsService struct {
 	logisticsdb *LogisticsDb
@@ -68,15 +74,46 @@ func (self *LogisticsService) UnsubscribeLogistics(username, logisticsId, compan
 	return nil
 }
 
+func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *ChangedLogisticInfo) {
+	startTime := time.Now().Unix()
+	limit := 100
+	defer close(logisticsCh)
+	for {
+		entities, err := self.logisticsdb.GetUnfinishedLogistic(startTime, limit)
+		if err != nil {
+			l4g.Error("GetUnfinishedLogistic error: %v", err)
+			return
+		}
+
+		for _, entity := range entities {
+			newRecords, updateErr := self.updateLogisticsProgress(&entity)
+			if updateErr != nil {
+				l4g.Error("UpdateLogisticsProgress error: %v", updateErr)
+				continue
+			}
+			if len(newRecords) == 0 {
+				continue
+			}
+			userRefs, getRefsErr := self.logisticsdb.GetUserLogisticsRefs(entity.Id)
+			if getRefsErr != nil {
+				l4g.Error("GetUserLogisticsRefs error: %v", getRefsErr)
+				continue
+			}
+			for _, ref := range userRefs {
+				changedInfo := &ChangedLogisticInfo{ref.Username, newRecords}
+				logisticsCh <- changedInfo
+			}
+
+		}
+		if len(entities) < limit { // no more logistics need to be updated
+			return
+		}
+	}
+
+}
+
 // return new record
-func (self *LogisticsService) updateLogisticsProgress(logisticsEntityId int) ([]LogisticsRecordEntity, error) {
-	lEntity, getError := self.logisticsdb.GetLogisticsInfoByEntityId(logisticsEntityId)
-	if getError != nil {
-		return []LogisticsRecordEntity{}, getError
-	}
-	if lEntity == nil {
-		return []LogisticsRecordEntity{}, errors.New(fmt.Sprintf("LogisticsInfo[%d] not exist!", logisticsEntityId))
-	}
+func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEntity) ([]LogisticsRecordEntity, error) {
 	logisticsInfo, queryErr := Query(lEntity.Company, lEntity.LogisticsId)
 	if queryErr != nil {
 		return []LogisticsRecordEntity{}, queryErr
@@ -105,9 +142,8 @@ func (self *LogisticsService) updateLogisticsProgress(logisticsEntityId int) ([]
 		}
 		rT := recTime.Unix()
 		if rT > lastUpdateTime {
-			// new record TODO may need to return
 			recEntity := &LogisticsRecordEntity{
-				LogisticsInfoEntityId: logisticsEntityId,
+				LogisticsInfoEntityId: lEntity.Id,
 				Context:               rec.Context,
 				Time:                  rT}
 			saveErr := self.logisticsdb.SaveLogisticsRecord(recEntity)

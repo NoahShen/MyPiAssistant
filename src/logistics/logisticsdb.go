@@ -91,6 +91,13 @@ func (self *LogisticsDb) GetUserLogisticsRef(username string, logisticsInfoEntit
 	return nil, nil
 }
 
+func (self *LogisticsDb) GetUserLogisticsRefs(logisticsInfoEntityId int) ([]UserLogisticsRef, error) {
+	var entities []UserLogisticsRef
+	err := self.orm.Where("logistics_info_entity_id = ?", logisticsInfoEntityId).
+		FindAll(&entities) // not Find()
+	return entities, err
+}
+
 func (self *LogisticsDb) GetLogisticsInfoByIdCompany(logisticsId, company string) (*LogisticsInfoEntity, error) {
 	var entities []LogisticsInfoEntity
 	err := self.orm.Where("logistics_id = ? and company = ?", logisticsId, company).
@@ -147,4 +154,12 @@ func (self *LogisticsDb) GetUserLogisticsRefByIdCompany(username, logisticsId, c
 		return nil, errors.New("More than one record")
 	}
 	return nil, nil
+}
+
+func (self *LogisticsDb) GetUnfinishedLogistic(startTime int64, limit int) ([]LogisticsInfoEntity, error) {
+	var entities []LogisticsInfoEntity
+	err := self.orm.Where("last_update_time < ?", startTime).
+		Limit(limit).
+		FindAll(&entities)
+	return entities, err
 }

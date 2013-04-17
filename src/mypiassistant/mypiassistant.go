@@ -113,9 +113,7 @@ func NewPiAssistant(configPath string) (*PiAssistant, error) {
 	pi.piDownloader = piDer
 	pi.xmppClient = xmpp.NewXmppClient()
 	pi.cron = cron.New()
-	pi.cron.AddFunc(pi.config.UpdateCron, func() {
-		pi.updateDownloadStat()
-	})
+
 	return pi, nil
 }
 
@@ -133,22 +131,28 @@ func (self *PiAssistant) Init() error {
 		return xmppErr
 	}
 	l4g.Info("Xmpp is connected!")
-	self.cron.Start()
+	self.cron.AddFunc(self.config.UpdateCron, func() {
+		self.updateDownloadStat()
+	})
+	l4g.Debug("Updating download stat cron task added!")
 	return nil
 }
 
 func (self *PiAssistant) updateDownloadStat() {
-	l4g.Debug("updateDownloadStat!")
 	status, statErr := self.piDownloader.ProcessCommandNo("87", nil)
 	if statErr != nil {
+		l4g.Error("Get download stat error: %v", statErr)
 		self.xmppClient.Send(statErr.Error())
 	} else {
+		l4g.Debug("Download stat: %s", status)
 		self.xmppClient.Send(status)
 	}
 }
 func (self *PiAssistant) StartService() {
 	l4g.Info("Start service!")
 	self.updateDownloadStat()
+	self.cron.Start()
+	l4g.Debug("Cron task started!")
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
 	for {

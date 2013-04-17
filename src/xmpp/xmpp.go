@@ -236,7 +236,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 		if err != nil {
 			return Chat{}, err
 		}
-		l4g.Debug("Receive xmpp msg: %v", val)
+		l4g.Debug("Receive xmpp stanza: %v", val)
 		switch v := val.(type) {
 		case *clientMessage:
 			return Chat{v.From, v.Type, v.Body}, nil
@@ -249,7 +249,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 
 // Send sends message text.
 func (c *Client) Send(msg interface{}) {
-	l4g.Debug("Send xmpp msg: %v", msg)
+	l4g.Debug("Send xmpp stanza content: %v", msg)
 	switch v := msg.(type) {
 	case *Chat:
 		fmt.Fprintf(c.tls, "<message to='%s' type='%s' xml:lang='en'>"+
