@@ -34,8 +34,10 @@ type ChangedLogisticInfo struct {
 }
 
 type LogisticsService struct {
-	logisticsdb *LogisticsDb
-	commandMap  map[string]processFunc
+	logisticsdb     *LogisticsDb
+	commandMap      map[string]processFunc
+	commandHelp     map[string]string
+	voiceCommandMap map[string]string
 }
 
 func NewLogisticsService(dbFile string) (*LogisticsService, error) {
@@ -53,11 +55,38 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 		"getlogi":   (*LogisticsService).getlogi,
 		"getallsub": (*LogisticsService).getAllSubs,
 	}
+	service.voiceCommandMap = map[string]string{}
+	service.commandHelp = map[string]string{
+		"sublogi":   "subscribe one logistics, like sublogi name company logistics id",
+		"unsublogi": "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
+		"getlogi":   "get current logistics message, like getlogi name or getlogi company logistics id",
+		"getallsub": "get subscribed logistics info",
+	}
 	return service, nil
 }
 
 func (self *LogisticsService) Close() error {
 	return self.logisticsdb.Close()
+}
+
+func (self *LogisticsService) GetServiceName() string {
+	return "Logistics Query"
+}
+func (self *LogisticsService) VoiceToCommand(voiceText string) string {
+	comm := self.voiceCommandMap[voiceText]
+	return comm
+}
+
+func (self *LogisticsService) GetComandHelp() string {
+	var buffer bytes.Buffer
+	for command, helpMsg := range self.commandHelp {
+		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
+	}
+	buffer.WriteString("voice command:\n")
+	for voice, command := range self.voiceCommandMap {
+		buffer.WriteString(fmt.Sprintf("[%s] ===> %s\n", voice, command))
+	}
+	return buffer.String()
 }
 
 func (self *LogisticsService) CheckCommandType(command string) bool {
