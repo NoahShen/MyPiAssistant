@@ -75,6 +75,13 @@ func (self *LogisticsDb) GetLogisticsRecords(logisticsInfoEntityId int) ([]Logis
 	return entities, nil
 }
 
+func (self *LogisticsDb) GetAllUserLogisticsRefs(username string) ([]UserLogisticsRef, error) {
+	var entities []UserLogisticsRef
+	err := self.orm.Where("username = ? and subscribe = ?", username, 1).
+		FindAll(&entities) // not Find()
+	return entities, err
+}
+
 func (self *LogisticsDb) GetUserLogisticsRef(username string, logisticsInfoEntityId int) (*UserLogisticsRef, error) {
 	var entities []UserLogisticsRef
 	err := self.orm.Where("username = ? and logistics_info_entity_id = ?", username, logisticsInfoEntityId).
@@ -139,6 +146,7 @@ func (self *LogisticsDb) GetUserLogisticsRefByIdCompany(username, logisticsId, c
 	if findErr != nil {
 		return nil, findErr
 	}
+
 	l := len(refMaps)
 	if l == 1 {
 		entityMap := refMaps[0]
@@ -150,6 +158,22 @@ func (self *LogisticsDb) GetUserLogisticsRefByIdCompany(username, logisticsId, c
 		r := &UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe}
 		return r, nil
 
+	} else if l > 1 {
+		return nil, errors.New("More than one record")
+	}
+	return nil, nil
+}
+
+func (self *LogisticsDb) GetUserLogisticsRefByName(username, logisticsName string) (*UserLogisticsRef, error) {
+	var entities []UserLogisticsRef
+	err := self.orm.Where("username = ? and logistics_name = ? ", username, logisticsName).
+		FindAll(&entities) // not Find()
+	if err != nil {
+		return nil, err
+	}
+	l := len(entities)
+	if l == 1 {
+		return &entities[0], nil
 	} else if l > 1 {
 		return nil, errors.New("More than one record")
 	}

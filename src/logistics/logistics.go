@@ -50,6 +50,7 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 		"sublogi":   (*LogisticsService).sublogi,
 		"unsublogi": (*LogisticsService).unsublogi,
 		"getlogi":   (*LogisticsService).getlogi,
+		"getallsub": (*LogisticsService).getAllSubs,
 	}
 	return service, nil
 }
@@ -81,9 +82,13 @@ func (self *LogisticsService) Process(username, command string) (string, error) 
 	return f(self, username, commArr[1:])
 }
 func (self *LogisticsService) sublogi(username string, args []string) (string, error) {
-	company := args[0]
-	logisticsId := args[1]
-	logisticsName := args[2]
+	if len(args) != 3 {
+		return "", errors.New("Missing args, command should be like: sublogi logisticsName company logisticsId")
+	}
+	logisticsName := args[0]
+	company := args[1]
+	logisticsId := args[2]
+
 	if err := self.SubscribeLogistics(username, logisticsId, company, logisticsName); err != nil {
 		return "", err
 	}
@@ -91,11 +96,23 @@ func (self *LogisticsService) sublogi(username string, args []string) (string, e
 }
 
 func (self *LogisticsService) unsublogi(username string, args []string) (string, error) {
-	company := args[0]
-	logisticsId := args[1]
-	if err := self.UnsubscribeLogistics(username, logisticsId, company); err != nil {
-		return "", err
+	argsLen := len(args)
+	switch argsLen {
+	case 1:
+		name := args[0]
+		if err := self.UnsubscribeLogisticsByName(username, name); err != nil {
+			return "", err
+		}
+	case 2:
+		company := args[0]
+		logisticsId := args[1]
+		if err := self.UnsubscribeLogistics(username, logisticsId, company); err != nil {
+			return "", err
+		}
+	default:
+		return "", errors.New("Please input company, logisticsId or input logisticsName.")
 	}
+
 	return "OK", nil
 }
 
@@ -119,6 +136,26 @@ func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) 
 		message := record.Context
 		fTime := time.Unix(record.Time, 0).Format("2006-01-02 15:04:05")
 		buffer.WriteString(fmt.Sprintf("%s  %s\n", fTime, message))
+	}
+	return buffer.String()
+}
+
+func (self *LogisticsService) getAllSubs(username string, args []string) (string, error) {
+	subscriptions, err := self.GetAllUserSubscription(username)
+	if err != nil {
+		return "", err
+	}
+	return self.formatSubsOutput(subscriptions), nil
+}
+
+func (self *LogisticsService) formatSubsOutput(subscriptions []map[string]string) string {
+	if len(subscriptions) == 0 {
+		return "no records"
+	}
+	var buffer bytes.Buffer
+	buffer.WriteString("\n")
+	for _, sub := range subscriptions {
+		buffer.WriteString(fmt.Sprintf("%s  %s  %s\n", sub["logisticsName"], sub["company"], sub["logisticsId"]))
 	}
 	return buffer.String()
 }
@@ -151,8 +188,47 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 	return nil
 }
 
+func (self *LogisticsService) GetAllUserSubscription(username string) ([]map[string]string, error) {
+	refs, getError := self.logisticsdb.GetAllUserLogisticsRefs(username)
+	if getError != nil {
+		return make([]map[string]string, 0), getError
+	}
+	if len(refs) == 0 {
+		return make([]map[string]string, 0), nil
+	}
+	results := make([]map[string]string, 0)
+	for _, ref := range refs {
+		logisticsEntity, getEntityErr := self.logisticsdb.GetLogisticsInfoByEntityId(ref.LogisticsInfoEntityId)
+		if getEntityErr != nil {
+			return results, getEntityErr
+		}
+		logisticsInfoMap := make(map[string]string)
+		logisticsInfoMap["logisticsName"] = ref.LogisticsName
+		logisticsInfoMap["company"] = logisticsEntity.Company
+		logisticsInfoMap["logisticsId"] = logisticsEntity.LogisticsId
+		results = append(results, logisticsInfoMap)
+	}
+	return results, nil
+}
+
 func (self *LogisticsService) UnsubscribeLogistics(username, logisticsId, company string) error {
 	ref, getRefError := self.logisticsdb.GetUserLogisticsRefByIdCompany(username, logisticsId, company)
+	if getRefError != nil {
+		return getRefError
+	}
+	if ref == nil {
+		return errors.New("The subscription not exist!")
+	}
+	ref.Subscribe = 2
+	saveErr := self.logisticsdb.SaveUserLogisticsRef(ref)
+	if saveErr != nil {
+		return saveErr
+	}
+	return nil
+}
+
+func (self *LogisticsService) UnsubscribeLogisticsByName(username, logisticsName string) error {
+	ref, getRefError := self.logisticsdb.GetUserLogisticsRefByName(username, logisticsName)
 	if getRefError != nil {
 		return getRefError
 	}
@@ -239,7 +315,10 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 		if parseErr != nil {
 			return []LogisticsRecordEntity{}, parseErr
 		}
-		rT := recTime.Unix()
+		localT := time.Date(recTime.Year(), recTime.Month(), recTime.Day(),
+			recTime.Hour(), recTime.Minute(), recTime.Second(), recTime.Nanosecond(),
+			time.Local)
+		rT := localT.Unix()
 		if rT > lastUpdateTime {
 			recEntity := &LogisticsRecordEntity{
 				LogisticsInfoEntityId: lEntity.Id,
@@ -280,9 +359,10 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 	var records []LogisticsRecordEntity
 	for _, rec := range logisticsInfo.Data {
 		recTime, _ := time.Parse("2006-01-02 15:04:05", rec.Time)
-		recTime.In(time.Now().Location())
-		rT := recTime.Unix()
-
+		localT := time.Date(recTime.Year(), recTime.Month(), recTime.Day(),
+			recTime.Hour(), recTime.Minute(), recTime.Second(), recTime.Nanosecond(),
+			time.Local)
+		rT := localT.Unix()
 		l4g.Debug("origin Time: %s, timeobj: %v, parse: %d, ", rec.Time, recTime, rT)
 		recEntity := LogisticsRecordEntity{
 			Context: rec.Context,

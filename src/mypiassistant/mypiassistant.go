@@ -222,14 +222,15 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	command = strings.TrimSpace(command)
 	l4g.Debug("Receive command from [%s]: %s", chatMessage.Remote, command)
 
+	username := xmpp.ToBareJID(chatMessage.Remote)
 	var resp string
 	var err error
 	invalidedCommand := false
 	switch {
 	case self.piDownloader.CheckCommandType(command):
-		resp, err = self.piDownloader.Process(chatMessage.Remote, command)
+		resp, err = self.piDownloader.Process(username, command)
 	case self.logisticsService.CheckCommandType(command):
-		resp, err = self.logisticsService.Process(chatMessage.Remote, command)
+		resp, err = self.logisticsService.Process(username, command)
 	default:
 		invalidedCommand = true
 	}
