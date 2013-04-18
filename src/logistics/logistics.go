@@ -28,8 +28,9 @@ func (s byTime) Less(i, j int) bool {
 type processFunc func(*LogisticsService, string, []string) (string, error)
 
 type ChangedLogisticInfo struct {
-	Username   string
-	NewRecords []LogisticsRecordEntity
+	Username      string
+	LogisticsName string
+	NewRecords    []LogisticsRecordEntity
 }
 
 type LogisticsService struct {
@@ -112,21 +113,32 @@ func (self *LogisticsService) unsublogi(username string, args []string) (string,
 	default:
 		return "", errors.New("Please input company, logisticsId or input logisticsName.")
 	}
-
 	return "OK", nil
 }
 
 func (self *LogisticsService) getlogi(username string, args []string) (string, error) {
-	company := args[0]
-	logisticsId := args[1]
-	recordEntities, err := self.GetCurrentLogistics(logisticsId, company)
-	if err != nil {
-		return "", err
+	argsLen := len(args)
+	switch argsLen {
+	case 1:
+		name := args[0]
+		recordEntities, err := self.GetCurrentLogisticsByName(username, name)
+		if err != nil {
+			return "", err
+		}
+		return self.FormatLogiOutput(recordEntities), nil
+	case 2:
+		company := args[0]
+		logisticsId := args[1]
+		recordEntities, err := self.GetCurrentLogistics(logisticsId, company)
+		if err != nil {
+			return "", err
+		}
+		return self.FormatLogiOutput(recordEntities), nil
 	}
-	return self.formatLogiOutput(recordEntities), nil
+	return "", errors.New("Please input company, logisticsId or input logisticsName.")
 }
 
-func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) string {
+func (self *LogisticsService) FormatLogiOutput(records []LogisticsRecordEntity) string {
 	if len(records) == 0 {
 		return "no records"
 	}
@@ -135,7 +147,7 @@ func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) 
 	for _, record := range records {
 		message := record.Context
 		fTime := time.Unix(record.Time, 0).Format("2006-01-02 15:04:05")
-		buffer.WriteString(fmt.Sprintf("%s  %s\n", fTime, message))
+		buffer.WriteString(fmt.Sprintf("[%s] %s\n", fTime, message))
 	}
 	return buffer.String()
 }
@@ -155,7 +167,7 @@ func (self *LogisticsService) formatSubsOutput(subscriptions []map[string]string
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
 	for _, sub := range subscriptions {
-		buffer.WriteString(fmt.Sprintf("%s  %s  %s\n", sub["logisticsName"], sub["company"], sub["logisticsId"]))
+		buffer.WriteString(fmt.Sprintf("%s %s %s\n", sub["logisticsName"], sub["company"], sub["logisticsId"]))
 	}
 	return buffer.String()
 }
@@ -172,6 +184,15 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 			return saveErr
 		}
 	}
+	refByName, getRefByNameError := self.logisticsdb.GetUserLogisticsRefByName(username, logisticsName)
+	if getRefByNameError != nil {
+		return getRefByNameError
+	}
+	if refByName != nil {
+		errMsg := fmt.Sprintf("LogisticsName[%s] is duplicated!", logisticsName)
+		return errors.New(errMsg)
+	}
+
 	ref, getRefError := self.logisticsdb.GetUserLogisticsRef(username, l.Id)
 	if getRefError != nil {
 		return getRefError
@@ -267,13 +288,13 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 				continue
 			}
 			sort.Sort(byTime(newRecords))
-			userRefs, getRefsErr := self.logisticsdb.GetUserLogisticsRefs(entity.Id)
+			userRefs, getRefsErr := self.logisticsdb.GetSubUserLogisticsRefs(entity.Id)
 			if getRefsErr != nil {
 				l4g.Error("GetUserLogisticsRefs error: %v", getRefsErr)
 				continue
 			}
 			for _, ref := range userRefs {
-				changedInfo := &ChangedLogisticInfo{ref.Username, newRecords}
+				changedInfo := &ChangedLogisticInfo{ref.Username, ref.LogisticsName, newRecords}
 				logisticsCh <- changedInfo
 			}
 
@@ -332,6 +353,27 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 		}
 	}
 
+	return records, nil
+}
+
+func (self *LogisticsService) GetCurrentLogisticsByName(username, name string) ([]LogisticsRecordEntity, error) {
+	refByName, getRefByNameError := self.logisticsdb.GetUserLogisticsRefByName(username, name)
+	if getRefByNameError != nil {
+		return []LogisticsRecordEntity{}, getRefByNameError
+	}
+	if refByName == nil {
+		errMsg := fmt.Sprintf("LogisticsName[%s] not exist!", name)
+		return []LogisticsRecordEntity{}, errors.New(errMsg)
+	}
+	logisticsEntity, getEntityErr := self.logisticsdb.GetLogisticsInfoByEntityId(refByName.LogisticsInfoEntityId)
+	if getEntityErr != nil {
+		return []LogisticsRecordEntity{}, getEntityErr
+	}
+	records, err := self.logisticsdb.GetLogisticsRecords(logisticsEntity.Id)
+	if err != nil {
+		return []LogisticsRecordEntity{}, err
+	}
+	sort.Sort(byTime(records))
 	return records, nil
 }
 

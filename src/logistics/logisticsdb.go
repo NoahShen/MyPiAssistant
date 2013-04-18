@@ -98,9 +98,9 @@ func (self *LogisticsDb) GetUserLogisticsRef(username string, logisticsInfoEntit
 	return nil, nil
 }
 
-func (self *LogisticsDb) GetUserLogisticsRefs(logisticsInfoEntityId int) ([]UserLogisticsRef, error) {
+func (self *LogisticsDb) GetSubUserLogisticsRefs(logisticsInfoEntityId int) ([]UserLogisticsRef, error) {
 	var entities []UserLogisticsRef
-	err := self.orm.Where("logistics_info_entity_id = ?", logisticsInfoEntityId).
+	err := self.orm.Where("logistics_info_entity_id = ? and subscribe = ?", logisticsInfoEntityId, 1).
 		FindAll(&entities) // not Find()
 	return entities, err
 }

@@ -4,6 +4,7 @@ import (
 	"code.google.com/p/goconf/conf"
 	l4g "code.google.com/p/log4go"
 	"flag"
+	"fmt"
 	"github.com/robfig/cron"
 	"logistics"
 	"pidownloader"
@@ -36,15 +37,16 @@ func main() {
 }
 
 type config struct {
-	UpdateCron      string
-	XmppHost        string
-	XmppUser        string
-	XmppPwd         string
-	RpcUrl          string
-	RpcVersion      string
-	TorrentDir      string
-	Confidence      float64
-	LogisticsDbFile string
+	StatUpdateCron      string
+	RpcUrl              string
+	RpcVersion          string
+	XmppHost            string
+	XmppUser            string
+	XmppPwd             string
+	TorrentDir          string
+	Confidence          float64
+	LogisticsDbFile     string
+	LogisticsUpdateCron string
 }
 
 type PiAssistant struct {
@@ -88,7 +90,7 @@ func loadConfig(configPath string) (*config, error) {
 	if config.RpcVersion, err = c.GetString("aria2", "rpc_version"); err != nil {
 		return nil, err
 	}
-	if config.UpdateCron, err = c.GetString("aria2", "update_cron"); err != nil {
+	if config.StatUpdateCron, err = c.GetString("aria2", "stat_update_cron"); err != nil {
 		return nil, err
 	}
 	if config.TorrentDir, err = c.GetString("aria2", "torrent_dir"); err != nil {
@@ -97,6 +99,10 @@ func loadConfig(configPath string) (*config, error) {
 	if config.LogisticsDbFile, err = c.GetString("logistics", "db_file"); err != nil {
 		return nil, err
 	}
+	if config.LogisticsUpdateCron, err = c.GetString("logistics", "logistics_update_cron"); err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
@@ -141,10 +147,13 @@ func (self *PiAssistant) Init() error {
 		return xmppErr
 	}
 	l4g.Info("Xmpp is connected!")
-	self.cron.AddFunc(self.config.UpdateCron, func() {
+	self.cron.AddFunc(self.config.StatUpdateCron, func() {
 		self.updateDownloadStat()
 	})
-	l4g.Debug("Updating download stat cron task added!")
+
+	self.cron.AddFunc(self.config.LogisticsUpdateCron, func() {
+		self.updateLogistics()
+	})
 	return nil
 }
 
@@ -158,6 +167,18 @@ func (self *PiAssistant) updateDownloadStat() {
 		self.xmppClient.Send(status)
 	}
 }
+
+func (self *PiAssistant) updateLogistics() {
+	logisticsCh := make(chan *logistics.ChangedLogisticInfo, 10)
+	go self.logisticsService.UpdateAndGetChangedLogistics(logisticsCh)
+	for changedInfo := range logisticsCh {
+		progress := self.logisticsService.FormatLogiOutput(changedInfo.NewRecords)
+		messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", changedInfo.LogisticsName, progress)
+		message := &xmpp.Chat{changedInfo.Username, "chat", messageContent}
+		self.xmppClient.Send(message)
+	}
+}
+
 func (self *PiAssistant) StartService() {
 	l4g.Info("Start service!")
 	self.updateDownloadStat()
