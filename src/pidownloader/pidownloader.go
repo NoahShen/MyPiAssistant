@@ -14,115 +14,125 @@ import (
 
 var helpMessage = `
 Command:
-The string in [] is command's alias.For example: addUri http..  equals c1 http...
+add uri            (add download task)
 
-add[c1] uri            (add download task)
+rm gid             (remove specific task by gid)
 
-rm[c2] gid             (remove specific task by gid)
+pause gid          (pause specific task by gid)
 
-pause[c3] gid          (pause specific task by gid)
+pauseall           (pause all tasks)
 
-pauseall[c4]           (pause all tasks)
+unpause gid        (unpause specific task by gid)
 
-unpause[c5] gid        (unpause specific task by gid)
+unpauseall         (unpause all tasks)
 
-unpauseall[c6]         (unpause all tasks)
-
-maxspd[c7] speed       (set max download speed, 0 for unlimit)
+maxspd speed       (set max download speed, 0 for unlimit)
  
-getact[c8] [keys]      (get active tasks)
+getact [keys]      (get active tasks)
 
-getwt[c9] [keys]       (get waiting tasks)
+getwt [keys]       (get waiting tasks)
 
-getstp[c10] [keys]     (get stopped tasks)
+getstp [keys]     (get stopped tasks)
 
-addtorrent[c11] path   (add bt download task)
+addtorrent path   (add bt download task)
 
-getstat[c87]           (get global stat)
+getstat           (get global stat)
 `
 
-var commandMap = map[string]string{
-	"help":       "c0",
-	"add":        "c1",
-	"rm":         "c2",
-	"pause":      "c3",
-	"pauseall":   "c4",
-	"unpause":    "c5",
-	"unpauseall": "c6",
-	"maxspd":     "c7",
-	"getact":     "c8",
-	"getwt":      "c9",
-	"getstp":     "c10",
-	"addtorrent": "c11",
-	"getstat":    "c87",
-}
+type processFunc func(*PiDownloader, []string) (string, error)
 
 type PiDownloader struct {
-	torrentDir string
+	torrentDir      string
+	commandMap      map[string]processFunc
+	commandHelp     map[string]string
+	voiceCommandMap map[string]string
 }
 
 func NewPidownloader(rpcUrl, torrentDir string) (*PiDownloader, error) {
 	piDownloader := new(PiDownloader)
 	piDownloader.torrentDir = torrentDir
 	aria2rpc.RpcUrl = rpcUrl
+
+	piDownloader.commandMap = map[string]processFunc{
+		"add":        (*PiDownloader).addUri,
+		"rm":         (*PiDownloader).pause,
+		"pause":      (*PiDownloader).pause,
+		"pauseall":   (*PiDownloader).pauseAll,
+		"unpause":    (*PiDownloader).unpause,
+		"unpauseall": (*PiDownloader).unpauseAll,
+		"maxspd":     (*PiDownloader).maxspeed,
+		"getact":     (*PiDownloader).getActive,
+		"getwt":      (*PiDownloader).getWaiting,
+		"getstp":     (*PiDownloader).getStopped,
+		"addtorrent": (*PiDownloader).addtorrent,
+		"getstat":    (*PiDownloader).getAria2GlobalStat,
+	}
+	piDownloader.voiceCommandMap = map[string]string{
+		"全部停止": "pauseall",
+		"全部启动": "unpauseall",
+		"下载进度": "getact",
+		"任务统计": "getstat",
+	}
+
+	piDownloader.commandHelp = map[string]string{
+		"add":        "add download url",
+		"rm":         "remove specific task by gid",
+		"pause":      "get current logistics message, like getlogi name or getlogi company logistics id",
+		"pauseall":   "pause all tasks",
+		"unpause":    "unpause specific task by gid",
+		"unpauseall": "unpause all tasks",
+		"maxspd":     "set max download speed, 0 for unlimit",
+		"getact":     "get active tasks",
+		"getwt":      "get waiting tasks",
+		"getstp":     "get stopped tasks",
+		"addtorrent": "add bt download task, the torrent must be exist in pi",
+		"getstat":    "get download stat",
+	}
 	return piDownloader, nil
 }
 
-func (self *PiDownloader) Process(command string) (string, error) {
-	l4g.Debug("Receive command: %s", command)
-	commArr := strings.Split(command, " ")
-	comm := commArr[0]
-	if strings.HasPrefix(comm, "c") {
-		return self.ProcessCommandNo(comm[1:], commArr[1:])
-	} else {
-		c := strings.ToLower(comm)
-		commandNo := commandMap[c]
-		l4g.Debug("Mapping command no: %s", commandNo)
-		if commandNo != "" && len(commandNo) > 0 {
-			return self.ProcessCommandNo(commandNo[1:], commArr[1:])
-		} else {
-			return "", errors.New("The command[" + command + "] is invalid, please type \"help\" for helping information")
-		}
-	}
-	return "OK", nil
+func (self *PiDownloader) GetServiceName() string {
+	return "PiDownloader"
 }
 
-func (self *PiDownloader) ProcessCommandNo(number string, args []string) (string, error) {
-	cNumber, numErr := strconv.Atoi(number)
-	if numErr != nil {
-		return "", errors.New("Number Command must be \"c\" + number")
+func (self *PiDownloader) VoiceToCommand(voiceText string) string {
+	comm := self.voiceCommandMap[voiceText]
+	return comm
+}
+
+func (self *PiDownloader) CheckCommandType(command string) bool {
+	commArr := strings.Split(command, " ")
+	comm := commArr[0]
+	c := strings.ToLower(comm)
+	for commandKey, _ := range self.commandMap {
+		if strings.HasPrefix(c, commandKey) {
+			l4g.Debug("[%s] is download command", command)
+			return true
+		}
 	}
-	switch cNumber {
-	case 0:
-		return helpMessage, nil
-	case 1:
-		return self.addUri(args)
-	case 2:
-		return self.remove(args)
-	case 3:
-		return self.pause(args)
-	case 4:
-		return self.pauseAll()
-	case 5:
-		return self.unpause(args)
-	case 6:
-		return self.unpauseAll()
-	case 7:
-		return self.maxspeed(args)
-	case 8:
-		return self.getActive(args)
-	case 9:
-		return self.getWaiting(args)
-	case 10:
-		return self.getStopped(args)
-	case 11:
-		return self.addtorrent(args)
-	case 87:
-		return self.getAria2GlobalStat()
-	default:
-		return "", errors.New("Error command no, please type \"help\" for helping information")
+	return false
+}
+
+func (self *PiDownloader) GetComandHelp() string {
+	var buffer bytes.Buffer
+	for command, helpMsg := range self.commandHelp {
+		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
 	}
-	return "", nil
+	buffer.WriteString("voice command:\n")
+	for voice, command := range self.voiceCommandMap {
+		buffer.WriteString(fmt.Sprintf("[%s] ===> %s\n", voice, command))
+	}
+	return buffer.String()
+}
+
+func (self *PiDownloader) Process(username, command string) (string, error) {
+	commArr := strings.Split(command, " ")
+	comm := commArr[0]
+	f := self.commandMap[comm]
+	if f == nil {
+		return "", errors.New("Invalided command, please type \"help\" for helping information")
+	}
+	return f(self, commArr[1:])
 }
 
 func (self *PiDownloader) addUri(args []string) (string, error) {
@@ -301,7 +311,7 @@ func (self *PiDownloader) getTitle(task map[string]interface{}) string {
 	return "No title"
 }
 
-func (self *PiDownloader) pauseAll() (string, error) {
+func (self *PiDownloader) pauseAll(args []string) (string, error) {
 	_, err := aria2rpc.PauseAll()
 	if err != nil {
 		return "", err
@@ -309,7 +319,7 @@ func (self *PiDownloader) pauseAll() (string, error) {
 	return "OK", nil
 }
 
-func (self *PiDownloader) unpauseAll() (string, error) {
+func (self *PiDownloader) unpauseAll(args []string) (string, error) {
 	_, err := aria2rpc.UnpauseAll()
 	if err != nil {
 		return "", err
@@ -317,7 +327,7 @@ func (self *PiDownloader) unpauseAll() (string, error) {
 	return "OK", nil
 }
 
-func (self *PiDownloader) getAria2GlobalStat() (string, error) {
+func (self *PiDownloader) getAria2GlobalStat(args []string) (string, error) {
 	globalStat, err := aria2rpc.GetGlobalStat()
 	if err != nil {
 		return "", err
