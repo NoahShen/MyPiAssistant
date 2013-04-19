@@ -136,6 +136,28 @@ func (self *LogisticsDb) GetLogisticsInfoByEntityId(entityId int) (*LogisticsInf
 	return nil, nil
 }
 
+func (self *LogisticsDb) GetAllDeliveringLogistics(username string) ([]UserLogisticsRef, error) {
+	refMaps, findErr := self.orm.SetTable("user_logistics_ref r").
+		Join("LEFT", "logistics_info_entity l", "r.logistics_info_entity_id = l.id").
+		Where("r.subscribe = ? and r.username = ? and l.state in (-1, 0, 1)", 1, username).
+		Select("r.id, r.username, r.logistics_info_entity_id, r.logistics_name, r.subscribe").
+		FindMap()
+	if findErr != nil {
+		return nil, findErr
+	}
+	refs := make([]UserLogisticsRef, 0)
+	for _, entityMap := range refMaps {
+		id, _ := strconv.Atoi(string(entityMap["id"]))
+		username := string(entityMap["username"])
+		logisticsEntityId, _ := strconv.Atoi(string(entityMap["logistics_info_entity_id"]))
+		logisticsName := string(entityMap["logistics_name"])
+		subscribe, _ := strconv.Atoi(string(entityMap["subscribe"]))
+		r := UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe}
+		refs = append(refs, r)
+	}
+	return refs, nil
+}
+
 func (self *LogisticsDb) GetUserLogisticsRefByIdCompany(username, logisticsId, company string) (*UserLogisticsRef, error) {
 	refMaps, findErr := self.orm.SetTable("user_logistics_ref r").
 		Join("LEFT", "logistics_info_entity l", "r.logistics_info_entity_id = l.id").

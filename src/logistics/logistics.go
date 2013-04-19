@@ -27,7 +27,7 @@ func (s byTime) Less(i, j int) bool {
 
 type processFunc func(*LogisticsService, string, []string) (string, error)
 
-type ChangedLogisticInfo struct {
+type ChangedLogisticsInfo struct {
 	Username      string
 	LogisticsName string
 	NewRecords    []LogisticsRecordEntity
@@ -50,17 +50,21 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 	service.logisticsdb = db
 
 	service.commandMap = map[string]processFunc{
-		"sublogi":   (*LogisticsService).sublogi,
-		"unsublogi": (*LogisticsService).unsublogi,
-		"getlogi":   (*LogisticsService).getlogi,
-		"getallsub": (*LogisticsService).getAllSubs,
+		"sublogi":    (*LogisticsService).sublogi,
+		"unsublogi":  (*LogisticsService).unsublogi,
+		"getlogi":    (*LogisticsService).getlogi,
+		"getallsub":  (*LogisticsService).getAllSubs,
+		"getalllogi": (*LogisticsService).getAlllogi,
 	}
-	service.voiceCommandMap = map[string]string{}
+	service.voiceCommandMap = map[string]string{
+		"物流查询": "getalllogi",
+	}
 	service.commandHelp = map[string]string{
-		"sublogi":   "subscribe one logistics, like sublogi name company logistics id",
-		"unsublogi": "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
-		"getlogi":   "get current logistics message, like getlogi name or getlogi company logistics id",
-		"getallsub": "get subscribed logistics info",
+		"sublogi":    "subscribe one logistics, like sublogi name company logistics id",
+		"unsublogi":  "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
+		"getlogi":    "get current logistics message, like getlogi name or getlogi company logistics id",
+		"getallsub":  "get subscribed logistics info",
+		"getalllogi": "get all delivering logistics info",
 	}
 	return service, nil
 }
@@ -165,6 +169,23 @@ func (self *LogisticsService) getlogi(username string, args []string) (string, e
 		return self.FormatLogiOutput(recordEntities), nil
 	}
 	return "", errors.New("Please input company, logisticsId or input logisticsName.")
+}
+
+func (self *LogisticsService) getAlllogi(username string, args []string) (string, error) {
+	changedLogisticsInfos, err := self.GetAllDeliveringLogistics(username)
+	if err != nil {
+		return "", err
+	}
+	if len(changedLogisticsInfos) == 0 {
+		return "no records", nil
+	}
+	var buffer bytes.Buffer
+	for _, changedInfo := range changedLogisticsInfos {
+		progress := self.FormatLogiOutput(changedInfo.NewRecords)
+		messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", changedInfo.LogisticsName, progress)
+		buffer.WriteString(messageContent)
+	}
+	return buffer.String(), nil
 }
 
 func (self *LogisticsService) FormatLogiOutput(records []LogisticsRecordEntity) string {
@@ -293,7 +314,7 @@ func (self *LogisticsService) UnsubscribeLogisticsByName(username, logisticsName
 	return nil
 }
 
-func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *ChangedLogisticInfo) {
+func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *ChangedLogisticsInfo) {
 	startTime := time.Now().Unix()
 	limit := 100
 	defer close(logisticsCh)
@@ -323,7 +344,7 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 				continue
 			}
 			for _, ref := range userRefs {
-				changedInfo := &ChangedLogisticInfo{ref.Username, ref.LogisticsName, newRecords}
+				changedInfo := &ChangedLogisticsInfo{ref.Username, ref.LogisticsName, newRecords}
 				logisticsCh <- changedInfo
 			}
 
@@ -394,11 +415,7 @@ func (self *LogisticsService) GetCurrentLogisticsByName(username, name string) (
 		errMsg := fmt.Sprintf("LogisticsName[%s] not exist!", name)
 		return []LogisticsRecordEntity{}, errors.New(errMsg)
 	}
-	logisticsEntity, getEntityErr := self.logisticsdb.GetLogisticsInfoByEntityId(refByName.LogisticsInfoEntityId)
-	if getEntityErr != nil {
-		return []LogisticsRecordEntity{}, getEntityErr
-	}
-	records, err := self.logisticsdb.GetLogisticsRecords(logisticsEntity.Id)
+	records, err := self.logisticsdb.GetLogisticsRecords(refByName.LogisticsInfoEntityId)
 	if err != nil {
 		return []LogisticsRecordEntity{}, err
 	}
@@ -434,7 +451,6 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 			recTime.Hour(), recTime.Minute(), recTime.Second(), recTime.Nanosecond(),
 			time.Local)
 		rT := localT.Unix()
-		l4g.Debug("origin Time: %s, timeobj: %v, parse: %d, ", rec.Time, recTime, rT)
 		recEntity := LogisticsRecordEntity{
 			Context: rec.Context,
 			Time:    rT}
@@ -442,4 +458,22 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 	}
 	sort.Sort(byTime(records))
 	return records, nil
+}
+
+func (self *LogisticsService) GetAllDeliveringLogistics(username string) ([]ChangedLogisticsInfo, error) {
+	refs, getRefsError := self.logisticsdb.GetAllDeliveringLogistics(username)
+	if getRefsError != nil {
+		return []ChangedLogisticsInfo{}, getRefsError
+	}
+	allChangedLogisticsInfo := make([]ChangedLogisticsInfo, 0)
+	for _, ref := range refs {
+		records, err := self.logisticsdb.GetLogisticsRecords(ref.LogisticsInfoEntityId)
+		if err != nil {
+			return []ChangedLogisticsInfo{}, err
+		}
+		sort.Sort(byTime(records))
+		changedLogisticsInfo := ChangedLogisticsInfo{username, ref.LogisticsName, records}
+		allChangedLogisticsInfo = append(allChangedLogisticsInfo, changedLogisticsInfo)
+	}
+	return allChangedLogisticsInfo, nil
 }
