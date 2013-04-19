@@ -12,33 +12,6 @@ import (
 	"utils"
 )
 
-var helpMessage = `
-Command:
-add uri            (add download task)
-
-rm gid             (remove specific task by gid)
-
-pause gid          (pause specific task by gid)
-
-pauseall           (pause all tasks)
-
-unpause gid        (unpause specific task by gid)
-
-unpauseall         (unpause all tasks)
-
-maxspd speed       (set max download speed, 0 for unlimit)
- 
-getact [keys]      (get active tasks)
-
-getwt [keys]       (get waiting tasks)
-
-getstp [keys]     (get stopped tasks)
-
-addtorrent path   (add bt download task)
-
-getstat           (get global stat)
-`
-
 type processFunc func(*PiDownloader, []string) (string, error)
 
 type PiDownloader struct {

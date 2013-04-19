@@ -169,7 +169,7 @@ func (self *PiAssistant) updateDownloadStat() {
 }
 
 func (self *PiAssistant) updateLogistics() {
-	logisticsCh := make(chan *logistics.ChangedLogisticInfo, 10)
+	logisticsCh := make(chan *logistics.ChangedLogisticsInfo, 10)
 	go self.logisticsService.UpdateAndGetChangedLogistics(logisticsCh)
 	for changedInfo := range logisticsCh {
 		progress := self.logisticsService.FormatLogiOutput(changedInfo.NewRecords)
@@ -207,24 +207,21 @@ func (self *PiAssistant) StopService() {
 func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	command := chatMessage.Text
 	if strings.HasPrefix(command, "Voice IM:") {
-		l4g.Debug("Receive voice message!")
+		l4g.Debug("Receive voice message: %s", command)
 		voiceUrl := strings.TrimSpace(command[len("Voice IM:"):])
 		text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
-		if convertErr != nil {
-			l4g.Error("Convert voice to text failed: %s", convertErr.Error())
-			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, convertErr.Error()}
-			self.xmppClient.Send(replyChat)
-			return
-		}
-		if !hasConfidence {
-			msg := "Can not hear what you're saying! Please try again."
+		if !hasConfidence || convertErr != nil {
+			if convertErr != nil {
+				l4g.Error("Convert voice to text failed: %s", convertErr.Error())
+			}
+			msg := "Can not understand what you said! Please try again."
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
 			self.xmppClient.Send(replyChat)
 			return
 		}
 		comm := self.convertVoiceTextToCommand(text)
 		if comm == "" || len(comm) == 0 {
-			errorMsg := "Can not understand your command[" + text + "]!"
+			errorMsg := "Invalided voice command[" + text + "], please type \"help\" for helping information!"
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, errorMsg}
 			self.xmppClient.Send(replyChat)
 			return
