@@ -14,6 +14,8 @@ type UserLogisticsRef struct {
 	LogisticsInfoEntityId int
 	LogisticsName         string
 	Subscribe             int //1: subscribe, 2: unsubscribe
+	CrtDate               int64
+	UpdDate               int64
 }
 
 type LogisticsInfoEntity struct {
@@ -23,6 +25,8 @@ type LogisticsInfoEntity struct {
 	State          int //-1: unknown, 0: deliverying, 1: sent, 2: Problem package, 3: Received, 4: Returned
 	Message        string
 	LastUpdateTime int64
+	CrtDate        int64
+	UpdDate        int64
 }
 
 type LogisticsRecordEntity struct {
@@ -30,6 +34,8 @@ type LogisticsRecordEntity struct {
 	LogisticsInfoEntityId int
 	Context               string
 	Time                  int64
+	CrtDate               int64
+	UpdDate               int64
 }
 
 type LogisticsDb struct {
@@ -140,7 +146,7 @@ func (self *LogisticsDb) GetAllDeliveringLogistics(username string) ([]UserLogis
 	refMaps, findErr := self.orm.SetTable("user_logistics_ref r").
 		Join("LEFT", "logistics_info_entity l", "r.logistics_info_entity_id = l.id").
 		Where("r.subscribe = ? and r.username = ? and l.state in (-1, 0, 1)", 1, username).
-		Select("r.id, r.username, r.logistics_info_entity_id, r.logistics_name, r.subscribe").
+		Select("r.id, r.username, r.logistics_info_entity_id, r.logistics_name, r.subscribe, r.crt_date, r.upd_date").
 		FindMap()
 	if findErr != nil {
 		return nil, findErr
@@ -152,7 +158,9 @@ func (self *LogisticsDb) GetAllDeliveringLogistics(username string) ([]UserLogis
 		logisticsEntityId, _ := strconv.Atoi(string(entityMap["logistics_info_entity_id"]))
 		logisticsName := string(entityMap["logistics_name"])
 		subscribe, _ := strconv.Atoi(string(entityMap["subscribe"]))
-		r := UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe}
+		crtDate, _ := strconv.ParseInt(string(entityMap["crt_date"]), 10, 0)
+		updDate, _ := strconv.ParseInt(string(entityMap["upd_date"]), 10, 0)
+		r := UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe, crtDate, updDate}
 		refs = append(refs, r)
 	}
 	return refs, nil
@@ -177,7 +185,9 @@ func (self *LogisticsDb) GetUserLogisticsRefByIdCompany(username, logisticsId, c
 		logisticsEntityId, _ := strconv.Atoi(string(entityMap["logistics_info_entity_id"]))
 		logisticsName := string(entityMap["logistics_name"])
 		subscribe, _ := strconv.Atoi(string(entityMap["subscribe"]))
-		r := &UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe}
+		crtDate, _ := strconv.ParseInt(string(entityMap["crt_date"]), 10, 0)
+		updDate, _ := strconv.ParseInt(string(entityMap["upd_date"]), 10, 0)
+		r := &UserLogisticsRef{id, username, logisticsEntityId, logisticsName, subscribe, crtDate, updDate}
 		return r, nil
 
 	} else if l > 1 {
