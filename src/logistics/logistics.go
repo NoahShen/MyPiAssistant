@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const (
+	LOGISTICS_UPDATE_TIMEOUT = 1 * 24 * 60 * 60
+)
+
 type byTime []LogisticsRecordEntity
 
 func (s byTime) Len() int {
@@ -182,7 +186,7 @@ func (self *LogisticsService) getAlllogi(username string, args []string) (string
 	var buffer bytes.Buffer
 	for _, changedInfo := range changedLogisticsInfos {
 		progress := self.FormatLogiOutput(changedInfo.NewRecords)
-		messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", changedInfo.LogisticsName, progress)
+		messageContent := fmt.Sprintf("\nThe logistics of [%s]:%s", changedInfo.LogisticsName, progress)
 		buffer.WriteString(messageContent)
 	}
 	return buffer.String(), nil
@@ -228,7 +232,13 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 		return getError
 	}
 	if l == nil {
-		l = &LogisticsInfoEntity{0, logisticsId, company, -1, "", -1}
+		l = &LogisticsInfoEntity{
+			Id:             0,
+			LogisticsId:    logisticsId,
+			Company:        company,
+			State:          -1,
+			Message:        "",
+			LastUpdateTime: -1}
 		saveErr := self.logisticsdb.SaveLogisticsInfo(l)
 		if saveErr != nil {
 			return saveErr
@@ -248,7 +258,12 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 		return getRefError
 	}
 	if ref == nil {
-		ref = &UserLogisticsRef{0, username, l.Id, logisticsName, 1}
+		ref = &UserLogisticsRef{
+			Id:                    0,
+			Username:              username,
+			LogisticsInfoEntityId: l.Id,
+			LogisticsName:         logisticsName,
+			Subscribe:             1}
 	}
 	ref.LogisticsName = logisticsName
 	ref.Subscribe = 1
@@ -364,14 +379,23 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 	if queryErr != nil {
 		return []LogisticsRecordEntity{}, queryErr
 	}
+
 	if logisticsInfo.Status != "200" {
-		// TODO don't update invalid logistics id again, make state to 701:error
+		if (time.Now().Unix() - lEntity.CrtDate) > LOGISTICS_UPDATE_TIMEOUT {
+			// timeout, make state = 701:error, don't update again
+			lEntity.State = 701
+		}
+		lEntity.Message = logisticsInfo.Message
+		lEntity.LastUpdateTime = time.Now().Unix()
+		updateErr := self.logisticsdb.SaveLogisticsInfo(lEntity)
+		if updateErr != nil {
+			return []LogisticsRecordEntity{}, updateErr
+		}
 		errMsg := fmt.Sprintf("Query logistics [%s %s]error: %s", lEntity.Company, lEntity.LogisticsId, logisticsInfo.Message)
 		return []LogisticsRecordEntity{}, errors.New(errMsg)
 	}
 
 	lastUpdateTime := lEntity.LastUpdateTime
-
 	s, _ := strconv.Atoi(logisticsInfo.State)
 	lEntity.State = s
 	lEntity.LastUpdateTime = time.Now().Unix()
