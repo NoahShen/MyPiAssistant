@@ -10,7 +10,7 @@ func NoTestSubscribeLogistics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subErr := service.SubscribeLogistics("Noah@example.com", "668031148649", "shentong", "goods")
+	subErr := service.SubscribeLogistics("Noah@example.com", "668031148649", "shentong", "test1")
 	if subErr != nil {
 		t.Fatal(subErr)
 	}
@@ -57,13 +57,13 @@ func NoTestGetCurrentLogistics(t *testing.T) {
 	}
 }
 
-func TestUpdateAndGetChangedLogistics(t *testing.T) {
+func NoTestUpdateAndGetChangedLogistics(t *testing.T) {
 	l4g.LoadConfiguration("../config/logConfig.xml")
 	service, err := NewLogisticsService("../../db/pilogistics.db")
 	if err != nil {
 		t.Fatal(err)
 	}
-	logisticsCh := make(chan *ChangedLogisticInfo, 1)
+	logisticsCh := make(chan *ChangedLogisticsInfo, 1)
 	go service.UpdateAndGetChangedLogistics(logisticsCh)
 	for changedInfo := range logisticsCh {
 		t.Log("username:", changedInfo.Username)
