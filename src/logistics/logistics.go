@@ -15,6 +15,21 @@ const (
 	LOGISTICS_UPDATE_TIMEOUT = 1 * 24 * 60 * 60
 )
 
+var company = map[string]string{
+	"申通":  "shentong",
+	"EMS": "ems",
+	"顺丰":  "shunfeng",
+	"圆通":  "yuantong",
+	"中通":  "zhongtong",
+	"如风达": "rufengda",
+	"韵达":  "yunda",
+	"天天":  "tiantian",
+	"汇通":  "huitongkuaidi",
+	"全峰":  "quanfengkuaidi",
+	"德邦":  "debangwuliu",
+	"宅急送": "zhaijisong",
+}
+
 type byTime []LogisticsRecordEntity
 
 func (s byTime) Len() int {
@@ -38,13 +53,14 @@ type ChangedLogisticsInfo struct {
 }
 
 type LogisticsService struct {
-	logisticsdb     *LogisticsDb
-	commandMap      map[string]processFunc
-	commandHelp     map[string]string
-	voiceCommandMap map[string]string
+	logisticsdb      *LogisticsDb
+	commandMap       map[string]processFunc
+	commandHelp      map[string]string
+	voiceCommandMap  map[string]string
+	beforeLastUpdate int64
 }
 
-func NewLogisticsService(dbFile string) (*LogisticsService, error) {
+func NewLogisticsService(dbFile string, beforeLastUpdate int64) (*LogisticsService, error) {
 	db, dbOpenErr := NewLogisticsDb(dbFile)
 	if dbOpenErr != nil {
 		return nil, dbOpenErr
@@ -52,16 +68,18 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 	l4g.Debug("Open logistics DB successful: %s", dbFile)
 	service := &LogisticsService{}
 	service.logisticsdb = db
-
+	service.beforeLastUpdate = beforeLastUpdate
 	service.commandMap = map[string]processFunc{
 		"sublogi":    (*LogisticsService).sublogi,
 		"unsublogi":  (*LogisticsService).unsublogi,
 		"getlogi":    (*LogisticsService).getlogi,
 		"getallsub":  (*LogisticsService).getAllSubs,
 		"getalllogi": (*LogisticsService).getAlllogi,
+		"getcom":     (*LogisticsService).getCompany,
 	}
 	service.voiceCommandMap = map[string]string{
 		"物流查询": "getalllogi",
+		"物流公司": "getcom",
 	}
 	service.commandHelp = map[string]string{
 		"sublogi":    "subscribe one logistics, like sublogi name company logistics id",
@@ -69,6 +87,7 @@ func NewLogisticsService(dbFile string) (*LogisticsService, error) {
 		"getlogi":    "get current logistics message, like getlogi name or getlogi company logistics id",
 		"getallsub":  "get subscribed logistics info",
 		"getalllogi": "get all delivering logistics info",
+		"getCom":     "get all supported company",
 	}
 	return service, nil
 }
@@ -119,6 +138,7 @@ func (self *LogisticsService) Process(username, command string) (string, error) 
 	}
 	return f(self, username, commArr[1:])
 }
+
 func (self *LogisticsService) sublogi(username string, args []string) (string, error) {
 	if len(args) != 3 {
 		return "", errors.New("Missing args, command should be like: sublogi logisticsName company logisticsId")
@@ -188,6 +208,15 @@ func (self *LogisticsService) getAlllogi(username string, args []string) (string
 		progress := self.FormatLogiOutput(changedInfo.NewRecords)
 		messageContent := fmt.Sprintf("\nThe logistics of [%s]:%s", changedInfo.LogisticsName, progress)
 		buffer.WriteString(messageContent)
+	}
+	return buffer.String(), nil
+}
+
+func (self *LogisticsService) getCompany(username string, args []string) (string, error) {
+	var buffer bytes.Buffer
+	buffer.WriteString("\n")
+	for company, comCode := range company {
+		buffer.WriteString(fmt.Sprintf("[%s] ===> %s\n", company, comCode))
 	}
 	return buffer.String(), nil
 }
@@ -330,11 +359,10 @@ func (self *LogisticsService) UnsubscribeLogisticsByName(username, logisticsName
 }
 
 func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *ChangedLogisticsInfo) {
-	startTime := time.Now().Unix()
 	limit := 100
 	defer close(logisticsCh)
 	for {
-		entities, err := self.logisticsdb.GetUnfinishedLogistic(startTime, limit)
+		entities, err := self.logisticsdb.GetUnfinishedLogistic(self.beforeLastUpdate, limit)
 		if err != nil {
 			l4g.Error("GetUnfinishedLogistic error: %v", err)
 			return
