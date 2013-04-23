@@ -5,3 +5,7 @@ SELECT strftime('%s','now') from logistics_info_entity
      WHERE id = 1;
      
  INSERT INTO logistics_info_entity
+ 
+ SELECT  l.* 
+     FROM logistics_info_entity l
+   WHERE l.last_update_time < strftime('%s','now')  -  600

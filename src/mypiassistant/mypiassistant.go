@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"speech2text"
 	"strings"
+	"time"
 	"xmpp"
 )
 
@@ -25,6 +26,7 @@ func main() {
 	flag.Parse()
 	l4g.LoadConfiguration(*logConfig)
 	l4g.Debug("MAXPROCS: %d", runtime.GOMAXPROCS(0))
+	defer time.Sleep(2 * time.Second)               // make sure log4go output the log
 	piAssistant, err := NewPiAssistant(*configPath) //"../config/pidownloader.conf"
 	if err != nil {
 		return
@@ -47,6 +49,7 @@ type config struct {
 	Confidence          float64
 	LogisticsDbFile     string
 	LogisticsUpdateCron string
+	BeforeLastUpdate    int
 }
 
 type PiAssistant struct {
@@ -103,6 +106,10 @@ func loadConfig(configPath string) (*config, error) {
 		return nil, err
 	}
 
+	if config.BeforeLastUpdate, err = c.GetInt("logistics", "before_last_time"); err != nil {
+		return nil, err
+	}
+
 	return config, nil
 }
 
@@ -118,7 +125,8 @@ func NewPiAssistant(configPath string) (*PiAssistant, error) {
 		l4g.Error("Create PiDownloader error: %v", err)
 		return nil, err
 	}
-	logisticsService, logiErr := logistics.NewLogisticsService(config.LogisticsDbFile)
+	logisticsService, logiErr :=
+		logistics.NewLogisticsService(config.LogisticsDbFile, int64(config.BeforeLastUpdate))
 	if logiErr != nil {
 		l4g.Error("Create LogisticService error: %v", logiErr)
 		return nil, err
@@ -183,7 +191,7 @@ func (self *PiAssistant) StartService() {
 	l4g.Info("Start service!")
 	self.updateDownloadStat()
 	self.cron.Start()
-	l4g.Debug("Cron task started!")
+	l4g.Info("Cron task started!")
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
 	for {
@@ -205,6 +213,7 @@ func (self *PiAssistant) StopService() {
 }
 
 func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
+	l4g.Info("Receive message from [%s]: %s", chatMessage.Remote, chatMessage.Text)
 	command := chatMessage.Text
 	if strings.HasPrefix(command, "Voice IM:") {
 		l4g.Debug("Receive voice message: %s", command)
@@ -230,7 +239,7 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 		command = comm
 	}
 	command = strings.TrimSpace(command)
-	l4g.Debug("Receive command from [%s]: %s", chatMessage.Remote, command)
+	l4g.Info("Command from [%s]: %s", chatMessage.Remote, command)
 	if command == "help" {
 		helpMessage := "\n"
 		helpMessage = helpMessage + fmt.Sprintf("%s command:\n%s",
