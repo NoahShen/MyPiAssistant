@@ -113,11 +113,32 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 		return "", errors.New("missing args!")
 	}
 	uri := args[0]
-	gid, err := aria2rpc.AddUri(uri, nil)
+	params := make(map[string]string)
+	if len(args) > 1 {
+		var err error
+		params, err = self.parseArgsToMap(args[1:])
+		if err != nil {
+			return "", err
+		}
+	}
+	l4g.Debug("add Uri params:%v", params)
+	gid, err := aria2rpc.AddUri(uri, params)
 	if err != nil {
 		return "", err
 	}
 	return "Add successful, gid:" + gid, nil
+}
+
+func (self *PiDownloader) parseArgsToMap(args []string) (map[string]string, error) {
+	params := make(map[string]string)
+	for _, arg := range args {
+		argNameValue := strings.SplitN(arg, "=", 2)
+		if len(argNameValue) != 2 {
+			return nil, errors.New("invalid args!")
+		}
+		params[argNameValue[0]] = argNameValue[1]
+	}
+	return params, nil
 }
 
 func (self *PiDownloader) addtorrent(args []string) (string, error) {

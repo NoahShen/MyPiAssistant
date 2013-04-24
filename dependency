@@ -1,0 +1,23 @@
+linux:
+aria2
+sqlite3
+supervisor
+
+web api:
+kuaidi100 api: www.kuaidi100.com
+google speech api:http://www.google.com/speech-api/v1/recognize?xjerr=1&client=chromium&lang=zh-CN
+
+third-party lib:
+github.com/mattn/go-xmpp
+github.com/mattn/go-sqlite3
+github.com/astaxie/beedb
+github.com/gorilla/rpc
+github.com/kdar/httprpc
+github.com/grsmv/inflect
+github.com/robfig/cron
+code.google.com/p/log4go
+code.google.com/p/goconf
+
+voice im:
+imo android or iphone client
+
