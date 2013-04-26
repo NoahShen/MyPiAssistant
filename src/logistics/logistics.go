@@ -70,24 +70,24 @@ func NewLogisticsService(dbFile string, beforeLastUpdate int64) (*LogisticsServi
 	service.logisticsdb = db
 	service.beforeLastUpdate = beforeLastUpdate
 	service.commandMap = map[string]processFunc{
-		"sublogi":    (*LogisticsService).sublogi,
-		"unsublogi":  (*LogisticsService).unsublogi,
-		"getlogi":    (*LogisticsService).getlogi,
-		"getallsub":  (*LogisticsService).getAllSubs,
-		"getalllogi": (*LogisticsService).getAlllogi,
-		"getcom":     (*LogisticsService).getCompany,
+		"sublogi":      (*LogisticsService).sublogi,
+		"unsublogi":    (*LogisticsService).unsublogi,
+		"getlogi":      (*LogisticsService).getlogi,
+		"getrecentsub": (*LogisticsService).getRecentSubs,
+		"getalllogi":   (*LogisticsService).getAlllogi,
+		"getcom":       (*LogisticsService).getCompany,
 	}
 	service.voiceCommandMap = map[string]string{
 		"物流查询": "getalllogi",
 		"物流公司": "getcom",
 	}
 	service.commandHelp = map[string]string{
-		"sublogi":    "subscribe one logistics, like sublogi name company logistics id",
-		"unsublogi":  "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
-		"getlogi":    "get current logistics message, like getlogi name or getlogi company logistics id",
-		"getallsub":  "get subscribed logistics info",
-		"getalllogi": "get all delivering logistics info",
-		"getCom":     "get all supported company",
+		"sublogi":      "subscribe one logistics, like sublogi name company logistics id",
+		"unsublogi":    "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
+		"getlogi":      "get current logistics message, like getlogi name or getlogi company logistics id",
+		"getrecentsub": "get recent subscribed logistics info",
+		"getalllogi":   "get all delivering logistics info",
+		"getCom":       "get all supported company",
 	}
 	return service, nil
 }
@@ -235,8 +235,8 @@ func (self *LogisticsService) FormatLogiOutput(records []LogisticsRecordEntity) 
 	return buffer.String()
 }
 
-func (self *LogisticsService) getAllSubs(username string, args []string) (string, error) {
-	subscriptions, err := self.GetAllUserSubscription(username)
+func (self *LogisticsService) getRecentSubs(username string, args []string) (string, error) {
+	subscriptions, err := self.GetUserSubscription(username, 30)
 	if err != nil {
 		return "", err
 	}
@@ -303,8 +303,8 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 	return nil
 }
 
-func (self *LogisticsService) GetAllUserSubscription(username string) ([]map[string]string, error) {
-	refs, getError := self.logisticsdb.GetAllUserLogisticsRefs(username)
+func (self *LogisticsService) GetUserSubscription(username string, limit int) ([]map[string]string, error) {
+	refs, getError := self.logisticsdb.GetAllUserLogisticsRefs(username, limit)
 	if getError != nil {
 		return make([]map[string]string, 0), getError
 	}
@@ -414,7 +414,6 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 			lEntity.State = 701
 		}
 		lEntity.Message = logisticsInfo.Message
-		lEntity.LastUpdateTime = time.Now().Unix()
 		updateErr := self.logisticsdb.SaveLogisticsInfo(lEntity)
 		if updateErr != nil {
 			return []LogisticsRecordEntity{}, updateErr
@@ -424,14 +423,7 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 	}
 
 	lastUpdateTime := lEntity.LastUpdateTime
-	s, _ := strconv.Atoi(logisticsInfo.State)
-	lEntity.State = s
-	lEntity.LastUpdateTime = time.Now().Unix()
-	updateErr := self.logisticsdb.SaveLogisticsInfo(lEntity)
-	if updateErr != nil {
-		return []LogisticsRecordEntity{}, updateErr
-	}
-
+	var latestRecTime int64 = -1
 	var records []LogisticsRecordEntity
 	for _, rec := range logisticsInfo.Data {
 		recTime, parseErr := time.Parse("2006-01-02 15:04:05", rec.Time)
@@ -452,9 +444,18 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 				return []LogisticsRecordEntity{}, saveErr
 			}
 			records = append(records, *recEntity)
+			if rT > latestRecTime {
+				latestRecTime = rT
+			}
 		}
 	}
-
+	s, _ := strconv.Atoi(logisticsInfo.State)
+	lEntity.State = s
+	lEntity.LastUpdateTime = latestRecTime
+	updateErr := self.logisticsdb.SaveLogisticsInfo(lEntity)
+	if updateErr != nil {
+		return []LogisticsRecordEntity{}, updateErr
+	}
 	return records, nil
 }
 
