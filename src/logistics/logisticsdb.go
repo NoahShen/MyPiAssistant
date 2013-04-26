@@ -81,9 +81,11 @@ func (self *LogisticsDb) GetLogisticsRecords(logisticsInfoEntityId int) ([]Logis
 	return entities, nil
 }
 
-func (self *LogisticsDb) GetAllUserLogisticsRefs(username string) ([]UserLogisticsRef, error) {
+func (self *LogisticsDb) GetAllUserLogisticsRefs(username string, limit int) ([]UserLogisticsRef, error) {
 	var entities []UserLogisticsRef
 	err := self.orm.Where("username = ? and subscribe = ?", username, 1).
+		OrderBy("upd_date desc").
+		Limit(limit).
 		FindAll(&entities) // not Find()
 	return entities, err
 }
