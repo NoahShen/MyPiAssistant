@@ -11,7 +11,7 @@ func TestPiDownloader(t *testing.T) {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	l4g.LoadConfiguration("../config/logConfig.xml")
 	defer time.Sleep(2 * time.Second)
-	piAssistant, err := NewPiAssistant("../config/pidownloader.conf")
+	piAssistant, err := NewPiAssistant("../config/piassistant.conf")
 	if err != nil {
 		t.Fatal("start error:", err)
 		return
