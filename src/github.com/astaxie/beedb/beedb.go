@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-var OnDebug = false
+var OnDebug = true
 var PluralizeTableNames = false
 
 type Model struct {

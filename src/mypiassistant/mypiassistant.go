@@ -45,6 +45,7 @@ type config struct {
 	XmppHost            string
 	XmppUser            string
 	XmppPwd             string
+	Gdriveid            string
 	TorrentDir          string
 	Confidence          float64
 	LogisticsDbFile     string
@@ -99,6 +100,9 @@ func loadConfig(configPath string) (*config, error) {
 	if config.TorrentDir, err = c.GetString("aria2", "torrent_dir"); err != nil {
 		return nil, err
 	}
+	if config.Gdriveid, err = c.GetString("aria2", "gdriveid"); err != nil {
+		return nil, err
+	}
 	if config.LogisticsDbFile, err = c.GetString("logistics", "db_file"); err != nil {
 		return nil, err
 	}
@@ -120,7 +124,7 @@ func NewPiAssistant(configPath string) (*PiAssistant, error) {
 		l4g.Error("Load config error: %v", configErr)
 		return nil, configErr
 	}
-	piDer, err := pidownloader.NewPidownloader(config.RpcUrl, config.TorrentDir)
+	piDer, err := pidownloader.NewPidownloader(config.RpcUrl, config.Gdriveid, config.TorrentDir)
 	if err != nil {
 		l4g.Error("Create PiDownloader error: %v", err)
 		return nil, err

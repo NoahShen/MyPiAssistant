@@ -19,10 +19,12 @@ type PiDownloader struct {
 	commandMap      map[string]processFunc
 	commandHelp     map[string]string
 	voiceCommandMap map[string]string
+	gdriveid        string
 }
 
-func NewPidownloader(rpcUrl, torrentDir string) (*PiDownloader, error) {
+func NewPidownloader(rpcUrl, gdriveid, torrentDir string) (*PiDownloader, error) {
 	piDownloader := new(PiDownloader)
+	piDownloader.gdriveid = gdriveid
 	piDownloader.torrentDir = torrentDir
 	aria2rpc.RpcUrl = rpcUrl
 
@@ -112,33 +114,61 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 	if args == nil || len(args) == 0 {
 		return "", errors.New("missing args!")
 	}
-	uri := args[0]
-	params := make(map[string]string)
-	if len(args) > 1 {
-		var err error
-		params, err = self.parseArgsToMap(args[1:])
+	uris := make([]string, 0)
+	params := make(map[string]interface{})
+	containLixian := false
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "http:") || strings.HasPrefix(arg, "https:") {
+			uris = append(uris, arg)
+
+			if strings.Index(arg, "lixian.vip.xunlei.com") != -1 {
+				containLixian = true
+			}
+		} else {
+			argNameValue := strings.SplitN(arg, "=", 2)
+			if len(argNameValue) != 2 {
+				return "", errors.New("invalid args!")
+			}
+			values := strings.Split(strings.TrimSpace(argNameValue[1]), ";")
+			params[argNameValue[0]] = values
+		}
+
+	}
+	if containLixian {
+		params = self.addGdriveId(params)
+	}
+	gids := make([]string, 0)
+	for _, uri := range uris {
+		l4g.Debug("Dowanload uri: %v", uri)
+		l4g.Debug("Dowanload params: %v", params)
+		gid, err := aria2rpc.AddUri(uri, params)
 		if err != nil {
 			return "", err
 		}
+		gids = append(gids, gid)
 	}
-	l4g.Debug("add Uri params:%v", params)
-	gid, err := aria2rpc.AddUri(uri, params)
-	if err != nil {
-		return "", err
-	}
-	return "Add successful, gid:" + gid, nil
+
+	return fmt.Sprintf("Add successful, gids:%v", gids), nil
 }
 
-func (self *PiDownloader) parseArgsToMap(args []string) (map[string]string, error) {
-	params := make(map[string]string)
-	for _, arg := range args {
-		argNameValue := strings.SplitN(arg, "=", 2)
-		if len(argNameValue) != 2 {
-			return nil, errors.New("invalid args!")
+func (self *PiDownloader) addGdriveId(params map[string]interface{}) map[string]interface{} {
+	headers := params["header"]
+	if headers == nil {
+		headers = []string{"Cookie:gdriveid=" + self.gdriveid}
+		params["header"] = headers
+	} else {
+		containGdrive := false
+		headerArr := headers.([]string)
+		for _, header := range headerArr {
+			if strings.Index(header, "gdriveid") > 0 {
+				containGdrive = true
+			}
 		}
-		params[argNameValue[0]] = argNameValue[1]
+		if !containGdrive {
+			headerArr = append(headerArr, "Cookie:gdriveid="+self.gdriveid)
+		}
 	}
-	return params, nil
+	return params
 }
 
 func (self *PiDownloader) addtorrent(args []string) (string, error) {
