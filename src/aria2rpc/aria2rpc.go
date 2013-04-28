@@ -11,7 +11,7 @@ import (
 var RpcUrl = "http://127.0.0.1:6800/jsonrpc"
 var RpcVersion = "2.0"
 
-func AddUri(uri string, params map[string]string) (string, error) {
+func AddUri(uri string, params map[string]interface{}) (string, error) {
 	method := "aria2.addUri"
 	paramArr := make([]interface{}, 1)
 	uris := make([]string, 1)
