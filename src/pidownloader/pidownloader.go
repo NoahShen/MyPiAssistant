@@ -30,7 +30,7 @@ func NewPidownloader(rpcUrl, gdriveid, torrentDir string) (*PiDownloader, error)
 
 	piDownloader.commandMap = map[string]processFunc{
 		"add":        (*PiDownloader).addUri,
-		"rm":         (*PiDownloader).pause,
+		"rm":         (*PiDownloader).remove,
 		"pause":      (*PiDownloader).pause,
 		"pauseall":   (*PiDownloader).pauseAll,
 		"unpause":    (*PiDownloader).unpause,
