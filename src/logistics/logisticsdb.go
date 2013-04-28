@@ -216,7 +216,7 @@ func (self *LogisticsDb) GetUserLogisticsRefByName(username, logisticsName strin
 
 func (self *LogisticsDb) GetUnfinishedLogistic(timeBefore int64, limit int) ([]LogisticsInfoEntity, error) {
 	var entities []LogisticsInfoEntity
-	err := self.orm.Where("last_update_time < strftime('%s','now') - ? and state in (-1, 0, 1)", timeBefore).
+	err := self.orm.Where("upd_date < strftime('%s','now') - ? and state in (-1, 0, 1)", timeBefore).
 		Limit(limit).
 		FindAll(&entities)
 	return entities, err

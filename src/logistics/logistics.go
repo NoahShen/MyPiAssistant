@@ -423,7 +423,7 @@ func (self *LogisticsService) updateLogisticsProgress(lEntity *LogisticsInfoEnti
 	}
 
 	lastUpdateTime := lEntity.LastUpdateTime
-	var latestRecTime int64 = -1
+	var latestRecTime int64 = lastUpdateTime
 	var records []LogisticsRecordEntity
 	for _, rec := range logisticsInfo.Data {
 		recTime, parseErr := time.Parse("2006-01-02 15:04:05", rec.Time)
