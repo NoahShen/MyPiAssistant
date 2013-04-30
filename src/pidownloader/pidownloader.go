@@ -41,6 +41,7 @@ func NewPidownloader(rpcUrl, gdriveid, torrentDir string) (*PiDownloader, error)
 		"getstp":     (*PiDownloader).getStopped,
 		"addtorrent": (*PiDownloader).addtorrent,
 		"getstat":    (*PiDownloader).getAria2GlobalStat,
+		"file":       (*PiDownloader).handleFile,
 	}
 	piDownloader.voiceCommandMap = map[string]string{
 		"全部停止": "pauseall",
@@ -79,9 +80,16 @@ func (self *PiDownloader) CheckCommandType(command string) bool {
 	commArr := strings.Split(command, " ")
 	comm := commArr[0]
 	c := strings.ToLower(comm)
+	if c == "file" {
+		fileUrl := commArr[1]
+		i := strings.LastIndex(fileUrl, "/")
+		fileName := fileUrl[i+1:]
+		if fileName == "aria2.down" {
+			return true
+		}
+	}
 	for commandKey, _ := range self.commandMap {
 		if strings.HasPrefix(c, commandKey) {
-			l4g.Debug("[%s] is download command", command)
 			return true
 		}
 	}
@@ -105,9 +113,27 @@ func (self *PiDownloader) Process(username, command string) (string, error) {
 	comm := commArr[0]
 	f := self.commandMap[comm]
 	if f == nil {
-		return "", errors.New("Invalided command, please type \"help\" for helping information")
+		return "", errors.New("Invalided download command, please type \"help\" for helping information")
 	}
 	return f(self, commArr[1:])
+}
+
+func (self *PiDownloader) handleFile(args []string) (string, error) {
+	//filePath := args[1]
+	filePath := "/home/noah/workspace/MyPiAssistant/src/mypiassistant/ZEpwMVg.down"
+	l4g.Debug("Starting parse commandfile: %s", filePath)
+	commands, err := self.parseCommandFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	for _, command := range commands {
+		l4g.Debug("Exec command from file: %s", command)
+		_, execErr := self.Process("", command)
+		if execErr != nil {
+			return "", execErr
+		}
+	}
+	return fmt.Sprintf("Command file executed successful! total: %d commands.", len(commands)), nil
 }
 
 func (self *PiDownloader) addUri(args []string) (string, error) {
@@ -263,9 +289,11 @@ func (self *PiDownloader) formatOutput(tasks []map[string]interface{}) (string, 
 	if tasks == nil || len(tasks) == 0 {
 		return "no records", nil
 	}
+
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
 	for _, task := range tasks {
+		l4g.Debug("=================\n%s", task)
 		gid := task["gid"].(string)
 		buffer.WriteString(fmt.Sprintf("gid: %s\n", gid))
 
