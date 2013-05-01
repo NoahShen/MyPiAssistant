@@ -3,10 +3,12 @@ package main
 import (
 	"code.google.com/p/goconf/conf"
 	l4g "code.google.com/p/log4go"
+	"errors"
 	"flag"
 	"fmt"
 	"github.com/robfig/cron"
 	"logistics"
+	"os"
 	"pidownloader"
 	"runtime"
 	"speech2text"
@@ -175,7 +177,6 @@ func (self *PiAssistant) updateDownloadStat() {
 		l4g.Error("Get download stat error: %v", statErr)
 		self.xmppClient.Send(statErr.Error())
 	} else {
-		l4g.Debug("Download stat: %s", status)
 		self.xmppClient.Send(status)
 	}
 }
@@ -219,29 +220,36 @@ func (self *PiAssistant) StopService() {
 func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	l4g.Info("Receive message from [%s]: %s", chatMessage.Remote, chatMessage.Text)
 	command := chatMessage.Text
-	if strings.HasPrefix(command, "Voice IM:") {
+	voiceMsgPrefix := "Voice IM:"
+	if strings.HasPrefix(command, voiceMsgPrefix) {
 		l4g.Debug("Receive voice message: %s", command)
-		voiceUrl := strings.TrimSpace(command[len("Voice IM:"):])
-		text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
-		if !hasConfidence || convertErr != nil {
-			if convertErr != nil {
-				l4g.Error("Convert voice to text failed: %s", convertErr.Error())
-			}
+		voiceUrl := strings.TrimSpace(command[len(voiceMsgPrefix):])
+		comm, voiceErr := self.convertVoiceToCommand(voiceUrl)
+		if voiceErr != nil {
+			l4g.Error("Convert voice to command failed: %v", voiceErr)
 			msg := "Can not understand what you said! Please try again."
 			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
 			self.xmppClient.Send(replyChat)
 			return
 		}
-		comm := self.convertVoiceTextToCommand(text)
-		if comm == "" || len(comm) == 0 {
-			errorMsg := "Invalided voice command[" + text + "], please type \"help\" for helping information!"
-			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, errorMsg}
+		command = comm
+	}
+	fileMsgPrefix := "I sent you a file through imo:"
+	if strings.HasPrefix(command, fileMsgPrefix) {
+		l4g.Debug("Receive file command: %s", command)
+		fileUrl := strings.TrimSpace(command[len(fileMsgPrefix):])
+		filePath, getFileErr := self.getCommandFile(fileUrl)
+		defer os.Remove(filePath)
+		if getFileErr != nil {
+			l4g.Error("Get command file failed: %v", getFileErr)
+			msg := "Get command file failed!"
+			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
 			self.xmppClient.Send(replyChat)
 			return
 		}
-		l4g.Debug("voice text ===> command :%s ===> %s", text, comm)
-		command = comm
+		command = fmt.Sprintf("file %s %s", fileUrl, filePath)
 	}
+
 	command = strings.TrimSpace(command)
 	l4g.Info("Command from [%s]: %s", chatMessage.Remote, command)
 	if command == "help" {
@@ -263,8 +271,10 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	invalidedCommand := false
 	switch {
 	case self.piDownloader.CheckCommandType(command):
+		l4g.Debug("[%s] is download command", command)
 		resp, err = self.piDownloader.Process(username, command)
 	case self.logisticsService.CheckCommandType(command):
+		l4g.Debug("[%s] is logistics command", command)
 		resp, err = self.logisticsService.Process(username, command)
 	default:
 		invalidedCommand = true
@@ -280,6 +290,24 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	}
 	self.xmppClient.Send(replyChat)
 }
+
+func (self *PiAssistant) convertVoiceToCommand(voiceUrl string) (string, error) {
+	text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
+	if !hasConfidence || convertErr != nil {
+		if convertErr != nil {
+			return "", convertErr
+		}
+		msg := "Can not understand what you said! Please try again."
+		return "", errors.New(msg)
+	}
+	comm := self.convertVoiceTextToCommand(text)
+	if comm == "" || len(comm) == 0 {
+		errorMsg := "Invalided voice command[" + text + "], please type \"help\" for helping information!"
+		return "", errors.New(errorMsg)
+	}
+	return comm, nil
+}
+
 func (self *PiAssistant) convertVoiceTextToCommand(text string) string {
 	var command string
 	command = self.piDownloader.VoiceToCommand(text)

@@ -122,7 +122,6 @@ func (self *LogisticsService) CheckCommandType(command string) bool {
 	c := strings.ToLower(comm)
 	for commandKey, _ := range self.commandMap {
 		if strings.HasPrefix(c, commandKey) {
-			l4g.Debug("[%s] is logistic command", command)
 			return true
 		}
 	}
