@@ -177,7 +177,6 @@ func (self *PiAssistant) updateDownloadStat() {
 		l4g.Error("Get download stat error: %v", statErr)
 		self.xmppClient.Send(statErr.Error())
 	} else {
-		l4g.Debug("Download stat: %s", status)
 		self.xmppClient.Send(status)
 	}
 }

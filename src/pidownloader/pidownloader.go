@@ -119,8 +119,7 @@ func (self *PiDownloader) Process(username, command string) (string, error) {
 }
 
 func (self *PiDownloader) handleFile(args []string) (string, error) {
-	//filePath := args[1]
-	filePath := "/home/noah/workspace/MyPiAssistant/src/mypiassistant/ZEpwMVg.down"
+	filePath := args[1]
 	l4g.Debug("Starting parse commandfile: %s", filePath)
 	commands, err := self.parseCommandFile(filePath)
 	if err != nil {
@@ -144,9 +143,8 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 	params := make(map[string]interface{})
 	containLixian := false
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "http:") || strings.HasPrefix(arg, "https:") {
+		if utils.IsHttpUrl(arg) {
 			uris = append(uris, arg)
-
 			if strings.Index(arg, "lixian.vip.xunlei.com") != -1 {
 				containLixian = true
 			}
@@ -156,7 +154,12 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 				return "", errors.New("invalid args!")
 			}
 			values := strings.Split(strings.TrimSpace(argNameValue[1]), ";")
-			params[argNameValue[0]] = values
+			if len(values) == 1 {
+				params[argNameValue[0]] = values[0]
+			} else {
+				params[argNameValue[0]] = values
+			}
+
 		}
 
 	}
@@ -183,16 +186,27 @@ func (self *PiDownloader) addGdriveId(params map[string]interface{}) map[string]
 		headers = []string{"Cookie:gdriveid=" + self.gdriveid}
 		params["header"] = headers
 	} else {
-		containGdrive := false
-		headerArr := headers.([]string)
-		for _, header := range headerArr {
-			if strings.Index(header, "gdriveid") > 0 {
-				containGdrive = true
+
+		switch headers.(type) {
+		case []string:
+			containGdrive := false
+			headerArr := headers.([]string)
+			for _, header := range headerArr {
+				if strings.Contains(header, "gdriveid") {
+					containGdrive = true
+				}
+			}
+			if !containGdrive {
+				headerArr = append(headerArr, "Cookie:gdriveid="+self.gdriveid)
+			}
+		case string:
+			headerStr := headers.(string)
+			if !strings.Contains(headerStr, "gdriveid") {
+				headers := []string{headerStr, "Cookie:gdriveid=" + self.gdriveid}
+				params["header"] = headers
 			}
 		}
-		if !containGdrive {
-			headerArr = append(headerArr, "Cookie:gdriveid="+self.gdriveid)
-		}
+
 	}
 	return params
 }
