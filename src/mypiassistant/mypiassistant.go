@@ -227,8 +227,7 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 		comm, voiceErr := self.convertVoiceToCommand(voiceUrl)
 		if voiceErr != nil {
 			l4g.Error("Convert voice to command failed: %v", voiceErr)
-			msg := "Can not understand what you said! Please try again."
-			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
+			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, voiceErr.Error()}
 			self.xmppClient.Send(replyChat)
 			return
 		}
@@ -293,11 +292,11 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 
 func (self *PiAssistant) convertVoiceToCommand(voiceUrl string) (string, error) {
 	text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
-	if !hasConfidence || convertErr != nil {
-		if convertErr != nil {
-			return "", convertErr
-		}
-		msg := "Can not understand what you said! Please try again."
+	if convertErr != nil {
+		return "", convertErr
+	}
+	if !hasConfidence {
+		msg := fmt.Sprintf("Can not understand what you said [%s]!", text)
 		return "", errors.New(msg)
 	}
 	comm := self.convertVoiceTextToCommand(text)
@@ -320,7 +319,7 @@ func (self *PiAssistant) convertVoiceTextToCommand(text string) string {
 func (self *PiAssistant) convertVoiceToText(voiceUrl string) (string, bool, error) {
 	text, c, e := speech2text.Speech2Text(voiceUrl)
 	if c < self.config.Confidence || e != nil {
-		return "", false, e
+		return text, false, e
 	}
 	return text, true, nil
 }
