@@ -2,6 +2,7 @@ package main
 
 import (
 	l4g "code.google.com/p/log4go"
+	"github.com/NoahShen/go-xmpp"
 	"runtime"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ func TestPiDownloader(t *testing.T) {
 	l4g.LoadConfiguration("../config/logConfig.xml")
 	defer time.Sleep(2 * time.Second)
 	piAssistant, err := NewPiAssistant("../config/piassistant.conf")
+	xmpp.Debug = true
 	if err != nil {
 		t.Fatal("start error:", err)
 		return

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/NoahShen/go-xmpp"
 	"github.com/robfig/cron"
 	"logistics"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"speech2text"
 	"strings"
 	"time"
-	"xmpp"
 )
 
 var (
@@ -175,9 +175,9 @@ func (self *PiAssistant) updateDownloadStat() {
 	status, statErr := self.piDownloader.Process("", "getstat")
 	if statErr != nil {
 		l4g.Error("Get download stat error: %v", statErr)
-		self.xmppClient.Send(statErr.Error())
+		self.xmppClient.SendPresenceStatus(statErr.Error())
 	} else {
-		self.xmppClient.Send(status)
+		self.xmppClient.SendPresenceStatus(status)
 	}
 }
 
@@ -187,8 +187,7 @@ func (self *PiAssistant) updateLogistics() {
 	for changedInfo := range logisticsCh {
 		progress := self.logisticsService.FormatLogiOutput(changedInfo.NewRecords)
 		messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", changedInfo.LogisticsName, progress)
-		message := &xmpp.Chat{changedInfo.Username, "chat", messageContent}
-		self.xmppClient.Send(message)
+		self.xmppClient.SendChatMessage(changedInfo.Username, messageContent)
 	}
 }
 
@@ -201,8 +200,8 @@ func (self *PiAssistant) StartService() {
 	self.xmppClient.AddHandler(self.chathandler)
 	for {
 		select {
-		case msg := <-self.chathandler.GetHandleCh():
-			self.handle(msg.(xmpp.Chat))
+		case event := <-self.chathandler.GetHandleCh():
+			self.handle(event.Stanza.(*xmpp.Message))
 		case <-self.stopCh:
 			break
 		}
@@ -217,9 +216,9 @@ func (self *PiAssistant) StopService() {
 
 }
 
-func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
-	l4g.Info("Receive message from [%s]: %s", chatMessage.Remote, chatMessage.Text)
-	command := chatMessage.Text
+func (self *PiAssistant) handle(message *xmpp.Message) {
+	l4g.Info("Receive message from [%s]: %s", message.From, message.Body)
+	command := message.Body
 	voiceMsgPrefix := "Voice IM:"
 	if strings.HasPrefix(command, voiceMsgPrefix) {
 		l4g.Debug("Receive voice message: %s", command)
@@ -227,8 +226,7 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 		comm, voiceErr := self.convertVoiceToCommand(voiceUrl)
 		if voiceErr != nil {
 			l4g.Error("Convert voice to command failed: %v", voiceErr)
-			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, voiceErr.Error()}
-			self.xmppClient.Send(replyChat)
+			self.xmppClient.SendChatMessage(message.From, voiceErr.Error())
 			return
 		}
 		command = comm
@@ -242,15 +240,14 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 		if getFileErr != nil {
 			l4g.Error("Get command file failed: %v", getFileErr)
 			msg := "Get command file failed!"
-			replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, msg}
-			self.xmppClient.Send(replyChat)
+			self.xmppClient.SendChatMessage(message.From, msg)
 			return
 		}
 		command = fmt.Sprintf("file %s %s", fileUrl, filePath)
 	}
 
 	command = strings.TrimSpace(command)
-	l4g.Info("Command from [%s]: %s", chatMessage.Remote, command)
+	l4g.Info("Command from [%s]: %s", message.From, command)
 	if command == "help" {
 		helpMessage := "\n"
 		helpMessage = helpMessage + fmt.Sprintf("%s command:\n%s",
@@ -260,11 +257,10 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 		helpMessage = helpMessage + fmt.Sprintf("%s command:\n%s",
 			self.logisticsService.GetServiceName(),
 			self.logisticsService.GetComandHelp())
-		replyChat := &xmpp.Chat{chatMessage.Remote, chatMessage.Type, helpMessage}
-		self.xmppClient.Send(replyChat)
+		self.xmppClient.SendChatMessage(message.From, helpMessage)
 		return
 	}
-	username := xmpp.ToBareJID(chatMessage.Remote)
+	username := xmpp.ToBareJID(message.From)
 	var resp string
 	var err error
 	invalidedCommand := false
@@ -278,16 +274,15 @@ func (self *PiAssistant) handle(chatMessage xmpp.Chat) {
 	default:
 		invalidedCommand = true
 	}
-	var replyChat *xmpp.Chat
+	var content string
 	if invalidedCommand {
-		errMsg := fmt.Sprintf("Invalided command [%s], please type \"help\" for helping information", command)
-		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, errMsg}
+		content = fmt.Sprintf("Invalided command [%s], please type \"help\" for helping information", command)
 	} else if err != nil {
-		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, err.Error()}
+		content = err.Error()
 	} else {
-		replyChat = &xmpp.Chat{chatMessage.Remote, chatMessage.Type, resp}
+		content = resp
 	}
-	self.xmppClient.Send(replyChat)
+	self.xmppClient.SendChatMessage(message.From, content)
 }
 
 func (self *PiAssistant) convertVoiceToCommand(voiceUrl string) (string, error) {
