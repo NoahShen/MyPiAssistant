@@ -1,11 +1,11 @@
 package pidownloader
 
 import (
-	"aria2rpc"
 	"bytes"
 	l4g "code.google.com/p/log4go"
 	"errors"
 	"fmt"
+	"github.com/NoahShen/aria2rpc"
 	"path"
 	"strconv"
 	"strings"
