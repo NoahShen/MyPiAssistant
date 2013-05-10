@@ -1,12 +1,15 @@
 package pidownloader
 
 import (
-	"aria2rpc"
 	"bytes"
 	l4g "code.google.com/p/log4go"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/NoahShen/aria2rpc"
+	"github.com/robfig/cron"
 	"path"
+	"service"
 	"strconv"
 	"strings"
 	"utils"
@@ -14,21 +17,51 @@ import (
 
 type processFunc func(*PiDownloader, []string) (string, error)
 
-type PiDownloader struct {
-	torrentDir      string
-	commandMap      map[string]processFunc
-	commandHelp     map[string]string
-	voiceCommandMap map[string]string
-	gdriveid        string
+var commandHelp = map[string]string{
+	"add":        "add download url",
+	"rm":         "remove specific task by gid",
+	"pause":      "get current logistics message, like getlogi name or getlogi company logistics id",
+	"pauseall":   "pause all tasks",
+	"unpause":    "unpause specific task by gid",
+	"unpauseall": "unpause all tasks",
+	"maxspd":     "set max download speed, 0 for unlimit",
+	"getact":     "get active tasks",
+	"getwt":      "get waiting tasks",
+	"getstp":     "get stopped tasks",
+	"getstat":    "get download stat",
 }
 
-func NewPidownloader(rpcUrl, gdriveid, torrentDir string) (*PiDownloader, error) {
-	piDownloader := new(PiDownloader)
-	piDownloader.gdriveid = gdriveid
-	piDownloader.torrentDir = torrentDir
-	aria2rpc.RpcUrl = rpcUrl
+type PiDownloader struct {
+	commandMap      map[string]processFunc
+	voiceCommandMap map[string]string
+	pushMsgChannel  chan<- *service.PushMessage
+	cron            *cron.Cron
+}
 
-	piDownloader.commandMap = map[string]processFunc{
+type config struct {
+	RpcUrl         string `json:"rpcUrl,omitempty"`
+	RpcVersion     string `json:"rpcVersion,omitempty"`
+	StatUpdateCron string `json:"statUpdateCron,omitempty"`
+}
+
+func (self *PiDownloader) GetServiceName() string {
+	return "pidownloader"
+}
+
+func (self *PiDownloader) Init(configRawMsg *json.RawMessage, pushCh chan<- *service.PushMessage) error {
+	var c config
+	err := json.Unmarshal(*configRawMsg, &c)
+	if err != nil {
+		return err
+	}
+	aria2rpc.RpcUrl = c.RpcUrl
+	aria2rpc.RpcVersion = c.RpcVersion
+	self.pushMsgChannel = pushCh
+	self.cron = cron.New()
+	self.cron.AddFunc(c.StatUpdateCron, func() {
+		self.updateDownloadStat()
+	})
+	self.commandMap = map[string]processFunc{
 		"add":        (*PiDownloader).addUri,
 		"rm":         (*PiDownloader).remove,
 		"pause":      (*PiDownloader).pause,
@@ -39,66 +72,55 @@ func NewPidownloader(rpcUrl, gdriveid, torrentDir string) (*PiDownloader, error)
 		"getact":     (*PiDownloader).getActive,
 		"getwt":      (*PiDownloader).getWaiting,
 		"getstp":     (*PiDownloader).getStopped,
-		"addtorrent": (*PiDownloader).addtorrent,
 		"getstat":    (*PiDownloader).getAria2GlobalStat,
 		"file":       (*PiDownloader).handleFile,
 	}
-	piDownloader.voiceCommandMap = map[string]string{
+	self.voiceCommandMap = map[string]string{
 		"全部停止": "pauseall",
 		"全部启动": "unpauseall",
 		"下载进度": "getact",
 		"任务统计": "getstat",
 	}
 
-	piDownloader.commandHelp = map[string]string{
-		"add":        "add download url",
-		"rm":         "remove specific task by gid",
-		"pause":      "get current logistics message, like getlogi name or getlogi company logistics id",
-		"pauseall":   "pause all tasks",
-		"unpause":    "unpause specific task by gid",
-		"unpauseall": "unpause all tasks",
-		"maxspd":     "set max download speed, 0 for unlimit",
-		"getact":     "get active tasks",
-		"getwt":      "get waiting tasks",
-		"getstp":     "get stopped tasks",
-		"addtorrent": "add bt download task, the torrent must be exist in pi",
-		"getstat":    "get download stat",
+	_, statErr := self.Handle("", "getstat", nil)
+	if statErr != nil {
+		l4g.Error("Call aria2 error: %v", statErr)
+		return statErr
 	}
-	return piDownloader, nil
+	return nil
 }
 
-func (self *PiDownloader) GetServiceName() string {
-	return "PiDownloader"
+func (self *PiDownloader) StartService() error {
+	self.updateDownloadStat()
+	self.cron.Start()
+	return nil
 }
 
-func (self *PiDownloader) VoiceToCommand(voiceText string) string {
-	comm := self.voiceCommandMap[voiceText]
-	return comm
+func (self *PiDownloader) Stop() error {
+	self.cron.Stop()
+	return nil
 }
 
-func (self *PiDownloader) CheckCommandType(command string) bool {
-	commArr := strings.Split(command, " ")
-	comm := commArr[0]
-	c := strings.ToLower(comm)
-	if c == "file" {
-		fileUrl := commArr[1]
-		i := strings.LastIndex(fileUrl, "/")
-		fileName := fileUrl[i+1:]
-		if fileName == "aria2.down" {
-			return true
-		}
+func (self *PiDownloader) CommandFilter(command string, args []string) bool {
+	if _, ok := self.voiceCommandMap[command]; ok {
+		return true
 	}
-	for commandKey, _ := range self.commandMap {
-		if strings.HasPrefix(c, commandKey) {
-			return true
+
+	if _, ok := self.commandMap[command]; ok {
+		if command == "file" {
+			fileUrl := args[0]
+			i := strings.LastIndex(fileUrl, "/")
+			fileName := fileUrl[i+1:]
+			return fileName == "aria2.down"
 		}
+		return true
 	}
 	return false
 }
 
-func (self *PiDownloader) GetComandHelp() string {
+func (self *PiDownloader) GetHelpMessage() string {
 	var buffer bytes.Buffer
-	for command, helpMsg := range self.commandHelp {
+	for command, helpMsg := range commandHelp {
 		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
 	}
 	buffer.WriteString("voice command:\n")
@@ -108,14 +130,79 @@ func (self *PiDownloader) GetComandHelp() string {
 	return buffer.String()
 }
 
-func (self *PiDownloader) Process(username, command string) (string, error) {
-	commArr := strings.Split(command, " ")
-	comm := commArr[0]
+var oldStatus = ""
+
+func (self *PiDownloader) updateDownloadStat() {
+	currentStatus, err := self.getCurrentDownloadInfo()
+	pushMsg := &service.PushMessage{}
+	pushMsg.Type = service.Status
+	if err != nil {
+		l4g.Error("Get download status error: %v", err)
+		currentStatus = "Getting download status error!"
+	}
+	if currentStatus != oldStatus {
+		pushMsg.Message = currentStatus
+		oldStatus = currentStatus
+		self.pushMsgChannel <- pushMsg
+	}
+}
+
+func (self *PiDownloader) getCurrentDownloadInfo() (string, error) {
+	globalStat, getStatErr := aria2rpc.GetGlobalStat()
+	if getStatErr != nil {
+		return "", getStatErr
+	}
+	// total active download task
+	numActive, _ := strconv.Atoi(globalStat["numActive"].(string))
+	if numActive == 0 {
+		return "no active task", nil
+	}
+
+	// total speed
+	speed := utils.FormatSizeString(globalStat["downloadSpeed"].(string))
+
+	// the longest left time in active download task
+	var longestTimeLeft int64 = -1
+	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
+	tasks, getActErr := aria2rpc.GetActive(keys)
+	if getActErr != nil {
+		return "", getActErr
+	}
+	for _, task := range tasks {
+		dSpd := task["downloadSpeed"]
+		if dSpd != nil {
+			total, _ := strconv.ParseInt(task["totalLength"].(string), 10, 64)
+			completed, _ := strconv.ParseInt(task["completedLength"].(string), 10, 64)
+			spd, _ := strconv.ParseInt(dSpd.(string), 10, 64)
+			if spd > 0 {
+				timeLeft := (total - completed) / spd
+				if timeLeft > longestTimeLeft {
+					longestTimeLeft = timeLeft
+				}
+			}
+		}
+	}
+
+	var timeLeftFmt string
+	if longestTimeLeft > 0 {
+		timeLeftFmt = utils.FormatTime(longestTimeLeft)
+	} else {
+		timeLeftFmt = "N/A"
+	}
+	return fmt.Sprintf("spd: %s ; act: %d ; left: %s", speed, numActive, timeLeftFmt), nil
+}
+
+func (self *PiDownloader) Handle(username, command string, args []string) (string, error) {
+	comm := self.voiceCommandMap[command]
+	if comm == "" || len(comm) == 0 {
+		comm = command
+	}
+
 	f := self.commandMap[comm]
 	if f == nil {
 		return "", errors.New("Invalided download command, please type \"help\" for helping information")
 	}
-	return f(self, commArr[1:])
+	return f(self, args)
 }
 
 func (self *PiDownloader) handleFile(args []string) (string, error) {
@@ -127,7 +214,10 @@ func (self *PiDownloader) handleFile(args []string) (string, error) {
 	}
 	for _, command := range commands {
 		l4g.Debug("Exec command from file: %s", command)
-		_, execErr := self.Process("", command)
+		commArr := strings.Split(command, " ")
+		comm := commArr[0]
+		c := strings.ToLower(comm)
+		_, execErr := self.Handle("", c, commArr[1:])
 		if execErr != nil {
 			return "", execErr
 		}
@@ -141,13 +231,9 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 	}
 	uris := make([]string, 0)
 	params := make(map[string]interface{})
-	containLixian := false
 	for _, arg := range args {
 		if utils.IsHttpUrl(arg) {
 			uris = append(uris, arg)
-			if strings.Index(arg, "lixian.vip.xunlei.com") != -1 {
-				containLixian = true
-			}
 		} else {
 			argNameValue := strings.SplitN(arg, "=", 2)
 			if len(argNameValue) != 2 {
@@ -163,9 +249,6 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 		}
 
 	}
-	if containLixian {
-		params = self.addGdriveId(params)
-	}
 	gids := make([]string, 0)
 	for _, uri := range uris {
 		l4g.Debug("Dowanload uri: %v", uri)
@@ -180,48 +263,48 @@ func (self *PiDownloader) addUri(args []string) (string, error) {
 	return fmt.Sprintf("Add successful, gids:%v", gids), nil
 }
 
-func (self *PiDownloader) addGdriveId(params map[string]interface{}) map[string]interface{} {
-	headers := params["header"]
-	if headers == nil {
-		headers = []string{"Cookie:gdriveid=" + self.gdriveid}
-		params["header"] = headers
-	} else {
+//func (self *PiDownloader) addGdriveId(params map[string]interface{}) map[string]interface{} {
+//	headers := params["header"]
+//	if headers == nil {
+//		headers = []string{"Cookie:gdriveid=" + self.gdriveid}
+//		params["header"] = headers
+//	} else {
 
-		switch headers.(type) {
-		case []string:
-			containGdrive := false
-			headerArr := headers.([]string)
-			for _, header := range headerArr {
-				if strings.Contains(header, "gdriveid") {
-					containGdrive = true
-				}
-			}
-			if !containGdrive {
-				headerArr = append(headerArr, "Cookie:gdriveid="+self.gdriveid)
-			}
-		case string:
-			headerStr := headers.(string)
-			if !strings.Contains(headerStr, "gdriveid") {
-				headers := []string{headerStr, "Cookie:gdriveid=" + self.gdriveid}
-				params["header"] = headers
-			}
-		}
+//		switch headers.(type) {
+//		case []string:
+//			containGdrive := false
+//			headerArr := headers.([]string)
+//			for _, header := range headerArr {
+//				if strings.Contains(header, "gdriveid") {
+//					containGdrive = true
+//				}
+//			}
+//			if !containGdrive {
+//				headerArr = append(headerArr, "Cookie:gdriveid="+self.gdriveid)
+//			}
+//		case string:
+//			headerStr := headers.(string)
+//			if !strings.Contains(headerStr, "gdriveid") {
+//				headers := []string{headerStr, "Cookie:gdriveid=" + self.gdriveid}
+//				params["header"] = headers
+//			}
+//		}
 
-	}
-	return params
-}
+//	}
+//	return params
+//}
 
-func (self *PiDownloader) addtorrent(args []string) (string, error) {
-	if args == nil || len(args) == 0 {
-		return "", errors.New("missing args!")
-	}
-	path := args[0]
-	gid, err := aria2rpc.AddTorrent(self.torrentDir + path)
-	if err != nil {
-		return "", err
-	}
-	return "Add successful, gid:" + gid, nil
-}
+//func (self *PiDownloader) addtorrent(args []string) (string, error) {
+//	if args == nil || len(args) == 0 {
+//		return "", errors.New("missing args!")
+//	}
+//	path := args[0]
+//	gid, err := aria2rpc.AddTorrent(self.torrentDir + path)
+//	if err != nil {
+//		return "", err
+//	}
+//	return "Add successful, gid:" + gid, nil
+//}
 
 func (self *PiDownloader) remove(args []string) (string, error) {
 	if args == nil || len(args) == 0 {
@@ -307,7 +390,6 @@ func (self *PiDownloader) formatOutput(tasks []map[string]interface{}) (string, 
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
 	for _, task := range tasks {
-		l4g.Debug("=================\n%s", task)
 		gid := task["gid"].(string)
 		buffer.WriteString(fmt.Sprintf("gid: %s\n", gid))
 
