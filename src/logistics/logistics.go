@@ -428,9 +428,7 @@ func (self *LogisticsService) updateAndNotifyChangedLogistics() {
 			}
 
 		}
-		l := len(entities)
-		if l < limit { // no more logistics need to be updated
-			l4g.Debug("no more logistics: %d", l)
+		if len(entities) < limit { // no more logistics need to be updated
 			return
 		}
 	}

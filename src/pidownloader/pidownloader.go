@@ -91,6 +91,7 @@ func (self *PiDownloader) Init(configRawMsg *json.RawMessage, pushCh chan<- *ser
 }
 
 func (self *PiDownloader) StartService() error {
+	self.updateDownloadStat()
 	self.cron.Start()
 	return nil
 }
@@ -129,17 +130,66 @@ func (self *PiDownloader) GetHelpMessage() string {
 	return buffer.String()
 }
 
+var oldStatus = ""
+
 func (self *PiDownloader) updateDownloadStat() {
-	status, statErr := self.Handle("", "getstat", nil)
+	currentStatus, err := self.getCurrentDownloadInfo()
 	pushMsg := &service.PushMessage{}
 	pushMsg.Type = service.Status
-	if statErr != nil {
-		l4g.Error("Get download stat error: %v", statErr)
-		pushMsg.Message = statErr.Error()
-	} else {
-		pushMsg.Message = status
+	if err != nil {
+		l4g.Error("Get download status error: %v", err)
+		currentStatus = "Getting download status error!"
 	}
-	self.pushMsgChannel <- pushMsg
+	if currentStatus != oldStatus {
+		pushMsg.Message = currentStatus
+		oldStatus = currentStatus
+		self.pushMsgChannel <- pushMsg
+	}
+}
+
+func (self *PiDownloader) getCurrentDownloadInfo() (string, error) {
+	globalStat, getStatErr := aria2rpc.GetGlobalStat()
+	if getStatErr != nil {
+		return "", getStatErr
+	}
+	// total active download task
+	numActive, _ := strconv.Atoi(globalStat["numActive"].(string))
+	if numActive == 0 {
+		return "no active task", nil
+	}
+
+	// total speed
+	speed := utils.FormatSizeString(globalStat["downloadSpeed"].(string))
+
+	// the longest left time in active download task
+	var longestTimeLeft int64 = -1
+	keys := []string{"gid", "totalLength", "completedLength", "downloadSpeed"}
+	tasks, getActErr := aria2rpc.GetActive(keys)
+	if getActErr != nil {
+		return "", getActErr
+	}
+	for _, task := range tasks {
+		dSpd := task["downloadSpeed"]
+		if dSpd != nil {
+			total, _ := strconv.ParseInt(task["totalLength"].(string), 10, 64)
+			completed, _ := strconv.ParseInt(task["completedLength"].(string), 10, 64)
+			spd, _ := strconv.ParseInt(dSpd.(string), 10, 64)
+			if spd > 0 {
+				timeLeft := (total - completed) / spd
+				if timeLeft > longestTimeLeft {
+					longestTimeLeft = timeLeft
+				}
+			}
+		}
+	}
+
+	var timeLeftFmt string
+	if longestTimeLeft > 0 {
+		timeLeftFmt = utils.FormatTime(longestTimeLeft)
+	} else {
+		timeLeftFmt = "N/A"
+	}
+	return fmt.Sprintf("spd: %s ; act: %d ; left: %s", speed, numActive, timeLeftFmt), nil
 }
 
 func (self *PiDownloader) Handle(username, command string, args []string) (string, error) {
@@ -340,7 +390,6 @@ func (self *PiDownloader) formatOutput(tasks []map[string]interface{}) (string, 
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
 	for _, task := range tasks {
-		l4g.Debug("=================\n%s", task)
 		gid := task["gid"].(string)
 		buffer.WriteString(fmt.Sprintf("gid: %s\n", gid))
 

@@ -121,7 +121,7 @@ func (self *PiAssistant) initServices(configMap map[string]*json.RawMessage) err
 	for _, s := range services {
 		initErr := s.Init(configMap[s.GetServiceName()], self.pushMsgCh)
 		if initErr != nil {
-			return initErr
+			return errors.New(fmt.Sprintf("%s init error: %v", s.GetServiceName(), initErr))
 		}
 	}
 	return nil
@@ -144,9 +144,20 @@ func (self *PiAssistant) StartService() {
 		select {
 		case event := <-self.chathandler.GetHandleCh():
 			self.handle(event.Stanza.(*xmpp.Message))
+		case pushMsg := <-self.pushMsgCh:
+			self.handlePushMsg(pushMsg)
 		case <-self.stopCh:
 			break
 		}
+	}
+}
+
+func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
+	switch pushMsg.Type {
+	case service.Status:
+		self.xmppClient.SendPresenceStatus(pushMsg.Message)
+	case service.Notification:
+		self.xmppClient.SendChatMessage(pushMsg.Username, pushMsg.Message)
 	}
 }
 
