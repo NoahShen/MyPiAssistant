@@ -3,11 +3,13 @@ package logistics
 import (
 	"bytes"
 	l4g "code.google.com/p/log4go"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/robfig/cron"
+	"service"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -46,30 +48,61 @@ func (s byTime) Less(i, j int) bool {
 
 type processFunc func(*LogisticsService, string, []string) (string, error)
 
-type ChangedLogisticsInfo struct {
+var commandHelp = map[string]string{
+	"sublogi":      "subscribe one logistics, like sublogi name company logistics id",
+	"unsublogi":    "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
+	"getlogi":      "get current logistics message, like getlogi name or getlogi company logistics id",
+	"getrecentsub": "get recent subscribed logistics info",
+	"getalllogi":   "get all delivering logistics info",
+	"getCom":       "get all supported company",
+}
+
+type logisticsTrackingInfo struct {
 	Username      string
 	LogisticsName string
 	NewRecords    []LogisticsRecordEntity
 }
 
-type LogisticsService struct {
-	logisticsdb      *LogisticsDb
-	commandMap       map[string]processFunc
-	commandHelp      map[string]string
-	voiceCommandMap  map[string]string
-	beforeLastUpdate int64
+type config struct {
+	DbFile              string `json:"dbFile,omitempty"`
+	BeforeLastUpdate    int64  `json:"beforeLastUpdate,omitempty"`
+	LogisticsUpdateCron string `json:"logisticsUpdateCron,omitempty"`
 }
 
-func NewLogisticsService(dbFile string, beforeLastUpdate int64) (*LogisticsService, error) {
-	db, dbOpenErr := NewLogisticsDb(dbFile)
-	if dbOpenErr != nil {
-		return nil, dbOpenErr
+type LogisticsService struct {
+	logisticsdb     *LogisticsDb
+	commandMap      map[string]processFunc
+	commandHelp     map[string]string
+	voiceCommandMap map[string]string
+	config          *config
+	pushMsgChannel  chan<- *service.PushMessage
+	cron            *cron.Cron
+}
+
+func (self *LogisticsService) GetServiceName() string {
+	return "logisticsquery"
+}
+
+func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- *service.PushMessage) error {
+	var c config
+	err := json.Unmarshal(*configRawMsg, &c)
+	if err != nil {
+		return err
 	}
-	l4g.Debug("Open logistics DB successful: %s", dbFile)
-	service := &LogisticsService{}
-	service.logisticsdb = db
-	service.beforeLastUpdate = beforeLastUpdate
-	service.commandMap = map[string]processFunc{
+
+	db, dbOpenErr := NewLogisticsDb(c.DbFile)
+	if dbOpenErr != nil {
+		return dbOpenErr
+	}
+	l4g.Debug("Open logistics DB successful: %s", c.DbFile)
+	self.logisticsdb = db
+	self.config = &c
+	self.pushMsgChannel = pushCh
+	self.cron = cron.New()
+	self.cron.AddFunc(c.LogisticsUpdateCron, func() {
+		self.updateAndNotifyChangedLogistics()
+	})
+	self.commandMap = map[string]processFunc{
 		"sublogi":      (*LogisticsService).sublogi,
 		"unsublogi":    (*LogisticsService).unsublogi,
 		"getlogi":      (*LogisticsService).getlogi,
@@ -77,11 +110,11 @@ func NewLogisticsService(dbFile string, beforeLastUpdate int64) (*LogisticsServi
 		"getalllogi":   (*LogisticsService).getAlllogi,
 		"getcom":       (*LogisticsService).getCompany,
 	}
-	service.voiceCommandMap = map[string]string{
+	self.voiceCommandMap = map[string]string{
 		"物流查询": "getalllogi",
 		"物流公司": "getcom",
 	}
-	service.commandHelp = map[string]string{
+	self.commandHelp = map[string]string{
 		"sublogi":      "subscribe one logistics, like sublogi name company logistics id",
 		"unsublogi":    "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
 		"getlogi":      "get current logistics message, like getlogi name or getlogi company logistics id",
@@ -89,22 +122,20 @@ func NewLogisticsService(dbFile string, beforeLastUpdate int64) (*LogisticsServi
 		"getalllogi":   "get all delivering logistics info",
 		"getCom":       "get all supported company",
 	}
-	return service, nil
+	return nil
 }
 
-func (self *LogisticsService) Close() error {
+func (self *LogisticsService) StartService() error {
+	self.cron.Start()
+	return nil
+}
+
+func (self *LogisticsService) Stop() error {
+	self.cron.Stop()
 	return self.logisticsdb.Close()
 }
 
-func (self *LogisticsService) GetServiceName() string {
-	return "Logistics Query"
-}
-func (self *LogisticsService) VoiceToCommand(voiceText string) string {
-	comm := self.voiceCommandMap[voiceText]
-	return comm
-}
-
-func (self *LogisticsService) GetComandHelp() string {
+func (self *LogisticsService) GetHelpMessage() string {
 	var buffer bytes.Buffer
 	for command, helpMsg := range self.commandHelp {
 		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
@@ -116,26 +147,28 @@ func (self *LogisticsService) GetComandHelp() string {
 	return buffer.String()
 }
 
-func (self *LogisticsService) CheckCommandType(command string) bool {
-	commArr := strings.Split(command, " ")
-	comm := commArr[0]
-	c := strings.ToLower(comm)
-	for commandKey, _ := range self.commandMap {
-		if strings.HasPrefix(c, commandKey) {
-			return true
-		}
+func (self *LogisticsService) CommandFilter(command string, args []string) bool {
+	if _, ok := self.voiceCommandMap[command]; ok {
+		return true
+	}
+
+	if _, ok := self.commandMap[command]; ok {
+		return true
 	}
 	return false
 }
 
-func (self *LogisticsService) Process(username, command string) (string, error) {
-	commArr := strings.Split(command, " ")
-	comm := commArr[0]
+func (self *LogisticsService) Handle(username, command string, args []string) (string, error) {
+	comm := self.voiceCommandMap[command]
+	if comm == "" || len(comm) == 0 {
+		comm = command
+	}
+
 	f := self.commandMap[comm]
 	if f == nil {
-		return "", errors.New("Invalided logistic command!")
+		return "", errors.New("Invalided logistics command, please type \"help\" for helping information")
 	}
-	return f(self, username, commArr[1:])
+	return f(self, username, args)
 }
 
 func (self *LogisticsService) sublogi(username string, args []string) (string, error) {
@@ -181,7 +214,7 @@ func (self *LogisticsService) getlogi(username string, args []string) (string, e
 		if err != nil {
 			return "", err
 		}
-		return self.FormatLogiOutput(recordEntities), nil
+		return self.formatLogiOutput(recordEntities), nil
 	case 2:
 		company := args[0]
 		logisticsId := args[1]
@@ -189,7 +222,7 @@ func (self *LogisticsService) getlogi(username string, args []string) (string, e
 		if err != nil {
 			return "", err
 		}
-		return self.FormatLogiOutput(recordEntities), nil
+		return self.formatLogiOutput(recordEntities), nil
 	}
 	return "", errors.New("Please input company, logisticsId or input logisticsName.")
 }
@@ -204,7 +237,7 @@ func (self *LogisticsService) getAlllogi(username string, args []string) (string
 	}
 	var buffer bytes.Buffer
 	for _, changedInfo := range changedLogisticsInfos {
-		progress := self.FormatLogiOutput(changedInfo.NewRecords)
+		progress := self.formatLogiOutput(changedInfo.NewRecords)
 		messageContent := fmt.Sprintf("\nThe logistics of [%s]:%s", changedInfo.LogisticsName, progress)
 		buffer.WriteString(messageContent)
 	}
@@ -220,7 +253,7 @@ func (self *LogisticsService) getCompany(username string, args []string) (string
 	return buffer.String(), nil
 }
 
-func (self *LogisticsService) FormatLogiOutput(records []LogisticsRecordEntity) string {
+func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) string {
 	if len(records) == 0 {
 		return "no records"
 	}
@@ -357,11 +390,10 @@ func (self *LogisticsService) UnsubscribeLogisticsByName(username, logisticsName
 	return nil
 }
 
-func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *ChangedLogisticsInfo) {
+func (self *LogisticsService) updateAndNotifyChangedLogistics() {
 	limit := 100
-	defer close(logisticsCh)
 	for {
-		entities, err := self.logisticsdb.GetUnfinishedLogistic(self.beforeLastUpdate, limit)
+		entities, err := self.logisticsdb.GetUnfinishedLogistic(self.config.BeforeLastUpdate, limit)
 		if err != nil {
 			l4g.Error("GetUnfinishedLogistic error: %v", err)
 			return
@@ -386,18 +418,20 @@ func (self *LogisticsService) UpdateAndGetChangedLogistics(logisticsCh chan<- *C
 				continue
 			}
 			for _, ref := range userRefs {
-				changedInfo := &ChangedLogisticsInfo{ref.Username, ref.LogisticsName, newRecords}
-				logisticsCh <- changedInfo
+				progress := self.formatLogiOutput(newRecords)
+				messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", ref.LogisticsName, progress)
+				pushMsg := &service.PushMessage{}
+				pushMsg.Type = service.Notification
+				pushMsg.Username = ref.Username
+				pushMsg.Message = messageContent
+				self.pushMsgChannel <- pushMsg
 			}
 
 		}
-		l := len(entities)
-		if l < limit { // no more logistics need to be updated
-			l4g.Debug("no more logistics: %d", l)
+		if len(entities) < limit { // no more logistics need to be updated
 			return
 		}
 	}
-
 }
 
 // return new record
@@ -512,20 +546,20 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 	return records, nil
 }
 
-func (self *LogisticsService) GetAllDeliveringLogistics(username string) ([]ChangedLogisticsInfo, error) {
+func (self *LogisticsService) GetAllDeliveringLogistics(username string) ([]logisticsTrackingInfo, error) {
 	refs, getRefsError := self.logisticsdb.GetAllDeliveringLogistics(username)
 	if getRefsError != nil {
-		return []ChangedLogisticsInfo{}, getRefsError
+		return nil, getRefsError
 	}
-	allChangedLogisticsInfo := make([]ChangedLogisticsInfo, 0)
+	allTrackingInfo := make([]logisticsTrackingInfo, 0)
 	for _, ref := range refs {
 		records, err := self.logisticsdb.GetLogisticsRecords(ref.LogisticsInfoEntityId)
 		if err != nil {
-			return []ChangedLogisticsInfo{}, err
+			return nil, err
 		}
 		sort.Sort(byTime(records))
-		changedLogisticsInfo := ChangedLogisticsInfo{username, ref.LogisticsName, records}
-		allChangedLogisticsInfo = append(allChangedLogisticsInfo, changedLogisticsInfo)
+		trackingInfo := logisticsTrackingInfo{username, ref.LogisticsName, records}
+		allTrackingInfo = append(allTrackingInfo, trackingInfo)
 	}
-	return allChangedLogisticsInfo, nil
+	return allTrackingInfo, nil
 }
