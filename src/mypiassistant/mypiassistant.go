@@ -53,7 +53,6 @@ type PiAssistant struct {
 
 func NewPiAssistant() *PiAssistant {
 	pi := &PiAssistant{}
-	pi.xmppClient = xmpp.NewXmppClient()
 	pi.stopCh = make(chan int, 1)
 	pi.ServiceMgr = &service.ServiceManager{}
 	pi.pushMsgCh = make(chan *service.PushMessage, 10)
@@ -107,13 +106,19 @@ func (self *PiAssistant) Init(configPath string) error {
 		return xmppConfigErr
 	}
 	// connect xmpp server
-	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
-	if xmppErr != nil {
-		l4g.Error("Connect xmpp server error: %v", xmppErr)
-		return xmppConfigErr
+	connectError := self.connectXmpp(xmppConf)
+	if connectError != nil {
+		l4g.Error("Connect xmpp server error: %v", connectError)
+		return connectError
 	}
 	l4g.Info("Xmpp is connected!")
 	return nil
+}
+
+func (self *PiAssistant) connectXmpp(xmppConf xmppConfig) error {
+	self.xmppClient = xmpp.NewXmppClient(xmpp.ClientConfig{true, 3, 30 * time.Second, false, 1})
+	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
+	return xmppErr
 }
 
 func (self *PiAssistant) initServices(configMap map[string]*json.RawMessage) error {
@@ -140,14 +145,15 @@ func (self *PiAssistant) StartService() {
 
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
-	for {
+	stopService := false
+	for !stopService {
 		select {
-		case event := <-self.chathandler.GetHandleCh():
+		case event := <-self.chathandler.GetEventCh():
 			self.handle(event.Stanza.(*xmpp.Message))
 		case pushMsg := <-self.pushMsgCh:
 			self.handlePushMsg(pushMsg)
 		case <-self.stopCh:
-			break
+			stopService = true
 		}
 	}
 }
