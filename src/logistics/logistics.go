@@ -72,7 +72,6 @@ type config struct {
 type LogisticsService struct {
 	logisticsdb     *LogisticsDb
 	commandMap      map[string]processFunc
-	commandHelp     map[string]string
 	voiceCommandMap map[string]string
 	config          *config
 	pushMsgChannel  chan<- *service.PushMessage
@@ -114,14 +113,6 @@ func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 		"物流查询": "getalllogi",
 		"物流公司": "getcom",
 	}
-	self.commandHelp = map[string]string{
-		"sublogi":      "subscribe one logistics, like sublogi name company logistics id",
-		"unsublogi":    "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
-		"getlogi":      "get current logistics message, like getlogi name or getlogi company logistics id",
-		"getrecentsub": "get recent subscribed logistics info",
-		"getalllogi":   "get all delivering logistics info",
-		"getCom":       "get all supported company",
-	}
 	return nil
 }
 
@@ -137,7 +128,7 @@ func (self *LogisticsService) Stop() error {
 
 func (self *LogisticsService) GetHelpMessage() string {
 	var buffer bytes.Buffer
-	for command, helpMsg := range self.commandHelp {
+	for command, helpMsg := range commandHelp {
 		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
 	}
 	buffer.WriteString("voice command:\n")

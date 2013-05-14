@@ -8,15 +8,15 @@ kuaidi100 api: www.kuaidi100.com
 google speech api:http://www.google.com/speech-api/v1/recognize?xjerr=1&client=chromium&lang=zh-CN
 
 third-party lib:
-github.com/mattn/go-xmpp
-github.com/mattn/go-sqlite3
-github.com/astaxie/beedb
+github.com/NoahShen/aria2rpc
+github.com/NoahShen/go-xmpp
+github.com/NoahShen/go-sqlite3
+github.com/NoahShen/beedb
 github.com/gorilla/rpc
 github.com/kdar/httprpc
 github.com/grsmv/inflect
 github.com/robfig/cron
 code.google.com/p/log4go
-code.google.com/p/goconf
 
 voice im:
 imo android or iphone client
