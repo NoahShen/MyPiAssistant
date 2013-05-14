@@ -27,8 +27,6 @@ func (self *ServiceManager) RemoveService(service Service) {
 }
 
 func (self *ServiceManager) GetAllServices() []Service {
-	self.mutex.Lock()
-	defer self.mutex.Unlock()
 	newServices := make([]Service, len(self.services))
 	copy(newServices, self.services)
 	return newServices
