@@ -43,17 +43,18 @@ func main() {
 }
 
 type PiAssistant struct {
-	xmppClient  *xmpp.XmppClient
-	chathandler xmpp.Handler
-	stopCh      chan int
-	ServiceMgr  *service.ServiceManager
-	pushMsgCh   chan *service.PushMessage
-	voiceConf   voiceConfig
+	xmppClient       *xmpp.XmppClient
+	chathandler      xmpp.Handler
+	subscribeHandler xmpp.Handler
+	stopCh           chan int
+	ServiceMgr       *service.ServiceManager
+	pushMsgCh        chan *service.PushMessage
+	voiceConf        voiceConfig
+	xmppConf         xmppConfig
 }
 
 func NewPiAssistant() *PiAssistant {
 	pi := &PiAssistant{}
-	pi.xmppClient = xmpp.NewXmppClient()
 	pi.stopCh = make(chan int, 1)
 	pi.ServiceMgr = &service.ServiceManager{}
 	pi.pushMsgCh = make(chan *service.PushMessage, 10)
@@ -61,9 +62,11 @@ func NewPiAssistant() *PiAssistant {
 }
 
 type xmppConfig struct {
-	Host string `json:"host,omitempty"`
-	User string `json:"username,omitempty"`
-	Pwd  string `json:"password,omitempty"`
+	Host       string `json:"host,omitempty"`
+	User       string `json:"username,omitempty"`
+	Pwd        string `json:"password,omitempty"`
+	Master     string `json:"master,omitempty"`
+	PingEnable bool   `json:"pingEnable,omitempty"`
 }
 
 type voiceConfig struct {
@@ -107,13 +110,20 @@ func (self *PiAssistant) Init(configPath string) error {
 		return xmppConfigErr
 	}
 	// connect xmpp server
-	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
-	if xmppErr != nil {
-		l4g.Error("Connect xmpp server error: %v", xmppErr)
-		return xmppConfigErr
+	connectError := self.connectXmpp(xmppConf)
+	if connectError != nil {
+		l4g.Error("Connect xmpp server error: %v", connectError)
+		return connectError
 	}
+	self.xmppConf = xmppConf
 	l4g.Info("Xmpp is connected!")
 	return nil
+}
+
+func (self *PiAssistant) connectXmpp(xmppConf xmppConfig) error {
+	self.xmppClient = xmpp.NewXmppClient(xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, false, 1})
+	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
+	return xmppErr
 }
 
 func (self *PiAssistant) initServices(configMap map[string]*json.RawMessage) error {
@@ -140,16 +150,33 @@ func (self *PiAssistant) StartService() {
 
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
-	for {
+
+	self.subscribeHandler = xmpp.NewSubscribeHandler()
+	self.xmppClient.AddHandler(self.subscribeHandler)
+
+	//make sure will receive roster and subscribe message
+	self.xmppClient.RequestRoster()
+	//make resource available
+	self.xmppClient.Send(&xmpp.Presence{})
+
+	stopService := false
+	for !stopService {
 		select {
-		case event := <-self.chathandler.GetHandleCh():
+		case event := <-self.chathandler.GetEventCh():
 			self.handle(event.Stanza.(*xmpp.Message))
+		case subsEvent := <-self.subscribeHandler.GetEventCh():
+			self.handleSubscribe(subsEvent.Stanza.(*xmpp.Presence))
 		case pushMsg := <-self.pushMsgCh:
 			self.handlePushMsg(pushMsg)
 		case <-self.stopCh:
-			break
+			stopService = true
 		}
 	}
+}
+
+func (self *PiAssistant) handleSubscribe(subPresence *xmpp.Presence) {
+	msg := fmt.Sprintf("%s request to add me as a contact", subPresence.From)
+	self.xmppClient.SendChatMessage(self.xmppConf.Master, msg)
 }
 
 func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
@@ -220,6 +247,22 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 	if comm == "help" {
 		helpMsg := self.getHelpMessage()
 		self.xmppClient.SendChatMessage(message.From, helpMsg)
+		return
+	}
+	if comm == "subscribed" {
+		sender := strings.ToLower(xmpp.ToBareJID(message.From))
+		content := ""
+		if sender == strings.ToLower(self.xmppConf.Master) {
+			subscribed := &xmpp.Presence{
+				To:   args[0],
+				Type: "subscribed",
+			}
+			self.xmppClient.Send(subscribed)
+			content = fmt.Sprintf("subscribed %s as a contact", args[0])
+		} else {
+			content = "You are not my master!"
+		}
+		self.xmppClient.SendChatMessage(message.From, content)
 		return
 	}
 	username := xmpp.ToBareJID(message.From)
