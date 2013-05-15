@@ -17,7 +17,7 @@ const (
 	LOGISTICS_UPDATE_TIMEOUT = 1 * 24 * 60 * 60
 )
 
-var company = map[string]string{
+var companyMap = map[string]string{
 	"申通":  "shentong",
 	"EMS": "ems",
 	"顺丰":  "shunfeng",
@@ -49,12 +49,12 @@ func (s byTime) Less(i, j int) bool {
 type processFunc func(*LogisticsService, string, []string) (string, error)
 
 var commandHelp = map[string]string{
-	"sublogi":      "subscribe one logistics, like sublogi name company logistics id",
-	"unsublogi":    "unsubscribe one logistics, like unsublogi name or unsublogi company logistics id",
-	"getlogi":      "get current logistics message, like getlogi name or getlogi company logistics id",
-	"getrecentsub": "get recent subscribed logistics info",
-	"getalllogi":   "get all delivering logistics info",
-	"getCom":       "get all supported company",
+	"跟踪快递": "订阅某条快递信息，命令格式:跟踪快递 快递名称 物流公司(或代码) 物流单号",
+	"取消快递": "取消订阅某条快递, 命令格式:取消快递 物流公司(或代码) 物流单号 或 取消快递 快递名",
+	"查询快递": "查询某条快递配送进度，在查询前不需要添加跟踪该快递，该物流单号命令格式: 查询快递 物流公司(或代码) 物流单号 或 查询快递 快递名",
+	"快递记录": "查询最近完成的物流单",
+	"我的快递": "查询已跟踪订阅的所有在途快递",
+	"物流公司": "查询支持的物流公司",
 }
 
 type logisticsTrackingInfo struct {
@@ -72,7 +72,7 @@ type config struct {
 type LogisticsService struct {
 	logisticsdb     *LogisticsDb
 	commandMap      map[string]processFunc
-	voiceCommandMap map[string]string
+	aliasCommandMap map[string]string
 	config          *config
 	pushMsgChannel  chan<- *service.PushMessage
 	cron            *cron.Cron
@@ -102,15 +102,19 @@ func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 		self.updateAndNotifyChangedLogistics()
 	})
 	self.commandMap = map[string]processFunc{
-		"sublogi":      (*LogisticsService).sublogi,
-		"unsublogi":    (*LogisticsService).unsublogi,
-		"getlogi":      (*LogisticsService).getlogi,
-		"getrecentsub": (*LogisticsService).getRecentSubs,
-		"getalllogi":   (*LogisticsService).getAlllogi,
-		"getcom":       (*LogisticsService).getCompany,
+		"sublogi":        (*LogisticsService).subLogi,
+		"unsublogi":      (*LogisticsService).unsubLogi,
+		"getlogi":        (*LogisticsService).getLogi,
+		"getrecentsub":   (*LogisticsService).getRecentSubs,
+		"getcurrentlogi": (*LogisticsService).getCurrentLogi,
+		"getcom":         (*LogisticsService).getCompany,
 	}
-	self.voiceCommandMap = map[string]string{
-		"物流查询": "getalllogi",
+	self.aliasCommandMap = map[string]string{
+		"跟踪快递": "sublogi",
+		"取消快递": "unsublogi",
+		"查询快递": "getlogi",
+		"快递记录": "getrecentsub",
+		"我的快递": "getcurrentlogi",
 		"物流公司": "getcom",
 	}
 	return nil
@@ -131,15 +135,11 @@ func (self *LogisticsService) GetHelpMessage() string {
 	for command, helpMsg := range commandHelp {
 		buffer.WriteString(fmt.Sprintf("[%s]: %s\n", command, helpMsg))
 	}
-	buffer.WriteString("voice command:\n")
-	for voice, command := range self.voiceCommandMap {
-		buffer.WriteString(fmt.Sprintf("[%s] ===> %s\n", voice, command))
-	}
 	return buffer.String()
 }
 
 func (self *LogisticsService) CommandFilter(command string, args []string) bool {
-	if _, ok := self.voiceCommandMap[command]; ok {
+	if _, ok := self.aliasCommandMap[command]; ok {
 		return true
 	}
 
@@ -150,33 +150,46 @@ func (self *LogisticsService) CommandFilter(command string, args []string) bool 
 }
 
 func (self *LogisticsService) Handle(username, command string, args []string) (string, error) {
-	comm := self.voiceCommandMap[command]
+	comm := self.aliasCommandMap[command]
 	if comm == "" || len(comm) == 0 {
 		comm = command
 	}
 
 	f := self.commandMap[comm]
 	if f == nil {
-		return "", errors.New("Invalided logistics command, please type \"help\" for helping information")
+		return "", errors.New("命令错误！请输入\"help\"查询命令！")
 	}
 	return f(self, username, args)
 }
 
-func (self *LogisticsService) sublogi(username string, args []string) (string, error) {
+func (self *LogisticsService) subLogi(username string, args []string) (string, error) {
 	if len(args) != 3 {
-		return "", errors.New("Missing args, command should be like: sublogi logisticsName company logisticsId")
+		return "", errors.New("缺少参数！")
 	}
 	logisticsName := args[0]
-	company := args[1]
+	com := args[1]
 	logisticsId := args[2]
 
+	company, check := self.checkCompany(com)
+	if !check {
+		return "", errors.New("错误的公司名称或代码!")
+	}
 	if err := self.SubscribeLogistics(username, logisticsId, company, logisticsName); err != nil {
 		return "", err
 	}
 	return "OK", nil
 }
 
-func (self *LogisticsService) unsublogi(username string, args []string) (string, error) {
+func (self *LogisticsService) checkCompany(company string) (string, bool) {
+	for key, value := range companyMap {
+		if company == key || company == value {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+func (self *LogisticsService) unsubLogi(username string, args []string) (string, error) {
 	argsLen := len(args)
 	switch argsLen {
 	case 1:
@@ -185,18 +198,22 @@ func (self *LogisticsService) unsublogi(username string, args []string) (string,
 			return "", err
 		}
 	case 2:
-		company := args[0]
+		com := args[0]
+		company, check := self.checkCompany(com)
+		if !check {
+			return "", errors.New("错误的公司名称或代码!")
+		}
 		logisticsId := args[1]
 		if err := self.UnsubscribeLogistics(username, logisticsId, company); err != nil {
 			return "", err
 		}
 	default:
-		return "", errors.New("Please input company, logisticsId or input logisticsName.")
+		return "", errors.New("参数错误！")
 	}
 	return "OK", nil
 }
 
-func (self *LogisticsService) getlogi(username string, args []string) (string, error) {
+func (self *LogisticsService) getLogi(username string, args []string) (string, error) {
 	argsLen := len(args)
 	switch argsLen {
 	case 1:
@@ -207,7 +224,11 @@ func (self *LogisticsService) getlogi(username string, args []string) (string, e
 		}
 		return self.formatLogiOutput(recordEntities), nil
 	case 2:
-		company := args[0]
+		com := args[0]
+		company, check := self.checkCompany(com)
+		if !check {
+			return "", errors.New("错误的公司名称或代码!")
+		}
 		logisticsId := args[1]
 		recordEntities, err := self.GetCurrentLogistics(logisticsId, company)
 		if err != nil {
@@ -215,21 +236,21 @@ func (self *LogisticsService) getlogi(username string, args []string) (string, e
 		}
 		return self.formatLogiOutput(recordEntities), nil
 	}
-	return "", errors.New("Please input company, logisticsId or input logisticsName.")
+	return "", errors.New("参数错误！")
 }
 
-func (self *LogisticsService) getAlllogi(username string, args []string) (string, error) {
+func (self *LogisticsService) getCurrentLogi(username string, args []string) (string, error) {
 	changedLogisticsInfos, err := self.GetAllDeliveringLogistics(username)
 	if err != nil {
 		return "", err
 	}
 	if len(changedLogisticsInfos) == 0 {
-		return "no records", nil
+		return "无记录", nil
 	}
 	var buffer bytes.Buffer
 	for _, changedInfo := range changedLogisticsInfos {
 		progress := self.formatLogiOutput(changedInfo.NewRecords)
-		messageContent := fmt.Sprintf("\nThe logistics of [%s]:%s", changedInfo.LogisticsName, progress)
+		messageContent := fmt.Sprintf("\n[%s]的物流信息:%s", changedInfo.LogisticsName, progress)
 		buffer.WriteString(messageContent)
 	}
 	return buffer.String(), nil
@@ -238,8 +259,8 @@ func (self *LogisticsService) getAlllogi(username string, args []string) (string
 func (self *LogisticsService) getCompany(username string, args []string) (string, error) {
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
-	for company, comCode := range company {
-		buffer.WriteString(fmt.Sprintf("[%s] ===> %s\n", company, comCode))
+	for company, comCode := range companyMap {
+		buffer.WriteString(fmt.Sprintf("公司名称[%s] ===> 公司代码[%s]\n", company, comCode))
 	}
 	return buffer.String(), nil
 }
@@ -301,7 +322,7 @@ func (self *LogisticsService) SubscribeLogistics(username, logisticsId, company,
 		return getRefByNameError
 	}
 	if refByName != nil {
-		errMsg := fmt.Sprintf("LogisticsName[%s] is duplicated!", logisticsName)
+		errMsg := fmt.Sprintf("物流名称[%s]重复！", logisticsName)
 		return errors.New(errMsg)
 	}
 
@@ -355,7 +376,7 @@ func (self *LogisticsService) UnsubscribeLogistics(username, logisticsId, compan
 		return getRefError
 	}
 	if ref == nil {
-		return errors.New("The subscription not exist!")
+		return errors.New("未订阅该快递！")
 	}
 	ref.Subscribe = 2
 	saveErr := self.logisticsdb.SaveUserLogisticsRef(ref)
@@ -371,7 +392,7 @@ func (self *LogisticsService) UnsubscribeLogisticsByName(username, logisticsName
 		return getRefError
 	}
 	if ref == nil {
-		return errors.New("The subscription not exist!")
+		return errors.New("未订阅该快递！")
 	}
 	ref.Subscribe = 2
 	saveErr := self.logisticsdb.SaveUserLogisticsRef(ref)
@@ -410,7 +431,7 @@ func (self *LogisticsService) updateAndNotifyChangedLogistics() {
 			}
 			for _, ref := range userRefs {
 				progress := self.formatLogiOutput(newRecords)
-				messageContent := fmt.Sprintf("\n[%s] has new logistics messages:%s", ref.LogisticsName, progress)
+				messageContent := fmt.Sprintf("\n[%s]有新的物流信息:%s", ref.LogisticsName, progress)
 				pushMsg := &service.PushMessage{}
 				pushMsg.Type = service.Notification
 				pushMsg.Username = ref.Username
@@ -489,7 +510,7 @@ func (self *LogisticsService) GetCurrentLogisticsByName(username, name string) (
 		return []LogisticsRecordEntity{}, getRefByNameError
 	}
 	if refByName == nil {
-		errMsg := fmt.Sprintf("LogisticsName[%s] not exist!", name)
+		errMsg := fmt.Sprintf("物流单[%s]不存在！", name)
 		return []LogisticsRecordEntity{}, errors.New(errMsg)
 	}
 	records, err := self.logisticsdb.GetLogisticsRecords(refByName.LogisticsInfoEntityId)
@@ -519,7 +540,7 @@ func (self *LogisticsService) GetCurrentLogistics(logisticsId, company string) (
 		return []LogisticsRecordEntity{}, queryErr
 	}
 	if logisticsInfo.Status != "200" {
-		return []LogisticsRecordEntity{}, errors.New("Query logistics error: " + logisticsInfo.Message)
+		return []LogisticsRecordEntity{}, errors.New("物流查询错误: " + logisticsInfo.Message)
 	}
 	var records []LogisticsRecordEntity
 	for _, rec := range logisticsInfo.Data {
