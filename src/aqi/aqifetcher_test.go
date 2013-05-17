@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestFetch(t *testing.T) {
+func _TestFetch(t *testing.T) {
 	aqi, err := FetchAqiFromWeb("shanghai")
 	if err != nil {
 		t.Fatal(err)
@@ -15,7 +15,7 @@ func TestFetch(t *testing.T) {
 	fmt.Println()
 }
 
-func TestFetchFromCN(t *testing.T) {
+func _TestFetchFromCN(t *testing.T) {
 	aqi, err := FetchAqiFromWeb("suzhou")
 	if err != nil {
 		t.Fatal(err)

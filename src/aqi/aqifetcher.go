@@ -21,23 +21,10 @@ const (
 	cnOfficialUrl = "http://pm25.in/api/querys/only_aqi.json?city=%s&token=FydAKx5y1BBbqXeLcxyi&stations=no"
 )
 
-type DataSource int
-
-const (
-	USEmbassy DataSource = 1 + iota
-	CNOfficial
-)
-
-type AqiData struct {
-	Aqi        int
-	Time       int64
-	Datasource DataSource
-}
-
 func FetchAqiFromWeb(city string) (*AqiData, error) {
 	cityCode, ok := usEmbassyMap[city]
 	if ok {
-		return fetchAqiFromUSEmbassy(cityCode)
+		return fetchAqiFromUSEmbassy(city, cityCode)
 	}
 	return fetchAqiFromCNOfficial(city)
 }
@@ -61,6 +48,7 @@ func fetchAqiFromCNOfficial(city string) (*AqiData, error) {
 	}
 	aqiItem := aqiItems[0]
 	aqiData := &AqiData{}
+	aqiData.City = city
 	aqiData.Aqi = aqiItem.Aqi
 	//get timepoint is "2013-05-16T16:00:00Z", lack of timezone
 	originalTime := aqiItem.TimePoint
@@ -91,7 +79,7 @@ func (s byTime) Less(i, j int) bool {
 	return s[i].TimeShort < s[j].TimeShort
 }
 
-func fetchAqiFromUSEmbassy(cityCode string) (*AqiData, error) {
+func fetchAqiFromUSEmbassy(city, cityCode string) (*AqiData, error) {
 	url := fmt.Sprintf(usEmbassyUrl, cityCode)
 	bytes, err := getHttpResponseContent(url)
 	if err != nil {
@@ -104,6 +92,7 @@ func fetchAqiFromUSEmbassy(cityCode string) (*AqiData, error) {
 	sort.Sort(byTime(aqiItems))
 	aqiItem := aqiItems[len(aqiItems)-1]
 	aqiData := &AqiData{}
+	aqiData.City = city
 	aqiData.Aqi = aqiItem.Aqi
 	aqiData.Time = aqiItem.TimeShort * 3600
 	aqiData.Datasource = USEmbassy
