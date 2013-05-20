@@ -34,6 +34,29 @@ func (self *AqiDataEntity) PreUpdate(s gorp.SqlExecutor) error {
 	return nil
 }
 
+// Usersub
+type UserSubEntity struct {
+	Id        int64
+	Username  string
+	City      string
+	SubStatus int //0 for unsub, 1 for sub
+	CrtDate   int64
+	UpdDate   int64
+	Version   int64
+}
+
+func (self *UserSubEntity) PreInsert(s gorp.SqlExecutor) error {
+	now := time.Now().Unix()
+	self.CrtDate = now
+	self.UpdDate = now
+	return nil
+}
+
+func (self *UserSubEntity) PreUpdate(s gorp.SqlExecutor) error {
+	self.UpdDate = time.Now().Unix()
+	return nil
+}
+
 //dbmap.TraceOn("", log.New(os.Stdout, "gorptest: ", log.Lmicroseconds))
 type AqiDbHelper struct {
 	dbConn *sql.DB
@@ -50,7 +73,7 @@ func NewAqiDbHelper(dbFile string) (*AqiDbHelper, error) {
 	aqiDbHelper.dbConn = db
 	aqiDbHelper.dbmap = &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 	if Debug {
-		aqiDbHelper.dbmap.TraceOn("", log.New(os.Stdout, "[gorpdebug]: ", log.LstdFlags))
+		aqiDbHelper.dbmap.TraceOn("[gorp]", log.New(os.Stdout, "[piaqi]: ", log.LstdFlags))
 	}
 	initErr := aqiDbHelper.init()
 	return aqiDbHelper, initErr
@@ -59,8 +82,9 @@ func NewAqiDbHelper(dbFile string) (*AqiDbHelper, error) {
 func (self *AqiDbHelper) init() error {
 	aqiDataEntityTable := self.dbmap.AddTable(AqiDataEntity{}).SetKeys(true, "Id")
 	aqiDataEntityTable.SetVersionCol("Version")
-	err := self.dbmap.CreateTablesOpts(true)
-	return err
+	userSubEntityTable := self.dbmap.AddTable(UserSubEntity{}).SetKeys(true, "Id")
+	userSubEntityTable.SetVersionCol("Version")
+	return self.dbmap.CreateTablesOpts(true)
 }
 
 func (self *AqiDbHelper) Close() error {
@@ -94,4 +118,37 @@ func (self *AqiDbHelper) GetLatestAqiEntity(city string) (*AqiDataEntity, error)
 		return list[0].(*AqiDataEntity), nil
 	}
 	return nil, nil
+}
+
+const (
+	GetUserSubSql = `select u.Id, 
+                        	u.Username, 
+							u.City, 
+						    u.SubStatus, 
+						    u.CrtDate, 
+						    u.UpdDate, 
+						    u.Version
+	                   from UserSubEntity u
+	                  where u.Username = ?
+	                    and u.City = ?`
+)
+
+func (self *AqiDbHelper) GetUserSub(username, city string) (*UserSubEntity, error) {
+	list, err := self.dbmap.Select(UserSubEntity{}, GetUserSubSql, username, city)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) > 0 {
+		return list[0].(*UserSubEntity), nil
+	}
+	return nil, nil
+}
+
+func (self *AqiDbHelper) AddUserSub(userSub *UserSubEntity) error {
+	return self.dbmap.Insert(userSub)
+}
+
+func (self *AqiDbHelper) UpdateUserSub(userSub *UserSubEntity) error {
+	_, err := self.dbmap.Update(userSub)
+	return err
 }

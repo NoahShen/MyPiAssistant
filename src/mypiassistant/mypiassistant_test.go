@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aqi"
 	l4g "code.google.com/p/log4go"
 	"github.com/NoahShen/go-xmpp"
 	"logistics"
@@ -17,7 +18,9 @@ func TestPiDownloader(t *testing.T) {
 	piAssistant := NewPiAssistant()
 	piAssistant.ServiceMgr.AddService(&pidownloader.PiDownloader{})
 	piAssistant.ServiceMgr.AddService(&logistics.LogisticsService{})
+	piAssistant.ServiceMgr.AddService(&aqi.AqiService{})
 	xmpp.Debug = true
+	aqi.Debug = true
 	if initErr := piAssistant.Init("../../config/piassistant.conf"); initErr != nil {
 		t.Fatal("init error:", initErr)
 	}

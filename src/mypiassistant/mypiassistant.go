@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aqi"
 	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,7 @@ func main() {
 
 	piAssistant.ServiceMgr.AddService(&pidownloader.PiDownloader{})
 	piAssistant.ServiceMgr.AddService(&logistics.LogisticsService{})
+	piAssistant.ServiceMgr.AddService(&aqi.AqiService{})
 
 	if initErr := piAssistant.Init(*configPath); initErr != nil { //"....//config/pidownloader.conf"
 		l4g.Error("PiAssistant init failed: %v", initErr)
