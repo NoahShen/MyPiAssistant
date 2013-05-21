@@ -35,6 +35,7 @@ type config struct {
 	DbFile        string `json:"dbFile,omitempty"`
 	AqiPushCron   string `json:"aqiPushCron,omitempty"`
 	AqiUpdateCron string `json:"aqiUpdateCron,omitempty"`
+	LatestHour    int    `json:"latestHour,omitempty"`
 }
 
 func (self *AqiService) GetServiceName() string {
@@ -286,20 +287,82 @@ func (self *AqiService) pushAqiDataToUser() {
 		return
 	}
 
+	t := time.Now().Add(time.Duration(-self.config.LatestHour) * time.Hour).Unix() //get the data of the latest several hours
 	for _, userSubEntity := range userSubEntities {
-		lastAqiDataEntity, getLatestErr := self.dbHelper.GetLatestAqiEntity(userSubEntity.City)
+		latestAqiDataEntities, getLatestErr := self.dbHelper.GetAqiDataAfterTime(userSubEntity.City, t)
 		if getLatestErr != nil {
 			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
 			continue
 		}
+
+		averageAqi, maxEntities, minEntities := self.getStatisticsAqiData(latestAqiDataEntities)
+
 		cityEntity := self.getCityEntity(userSubEntity.City)
-		aqiData := self.convertAqiDataEntityToAqiData(lastAqiDataEntity)
+		aqiData := self.convertAqiDataEntityToAqiData(latestAqiDataEntities[0])
+		message := self.formatStaticsOutput(cityEntity.CityCNName, aqiData, self.config.LatestHour, averageAqi, maxEntities, minEntities)
+
 		pushMsg := &service.PushMessage{}
 		pushMsg.Type = service.Notification
 		pushMsg.Username = userSubEntity.Username
-		pushMsg.Message = self.formatOutput(cityEntity.CityCNName, aqiData)
+		pushMsg.Message = message
 		self.pushMsgChannel <- pushMsg
 	}
+}
+
+func (self *AqiService) formatStaticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
+
+	var buffer bytes.Buffer
+	fTime := time.Unix(latestAqi.Time, 0).Format("2006-01-02 15:04:05")
+	ds := DatasourceMap[latestAqi.Datasource]
+	buffer.WriteString(fmt.Sprintf("%s的空气质量指数为%d, 发布时间%s, 数据来自%s\n", cityName, latestAqi.Aqi, fTime, ds))
+	buffer.WriteString(fmt.Sprintf("最近%d小时的平均指数为%d", latestHour, avgAqi))
+	if len(maxEntities) > 0 {
+		buffer.WriteString("\n空气质量指数在")
+		for i, e := range maxEntities {
+			if i != 0 {
+				buffer.WriteString(",")
+			}
+			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
+		}
+		buffer.WriteString(fmt.Sprintf("达到最高，最高指数为:%d", maxEntities[0].Aqi))
+	}
+
+	if len(minEntities) > 0 {
+		buffer.WriteString("\n空气质量指数在")
+		for i, e := range minEntities {
+			if i != 0 {
+				buffer.WriteString(",")
+			}
+			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
+		}
+		buffer.WriteString(fmt.Sprintf("达到最低，最低指数为:%d", minEntities[0].Aqi))
+	}
+	return buffer.String()
+
+}
+
+// get statistics aqi data, max aqi and min aqi may be more than one entity
+func (self *AqiService) getStatisticsAqiData(aqiDataEntities []*AqiDataEntity) (int, []*AqiDataEntity, []*AqiDataEntity) {
+	maxAqiEntities := make([]*AqiDataEntity, 0)
+	minAqiEntities := make([]*AqiDataEntity, 0)
+	aqiSum := 0
+	for _, entity := range aqiDataEntities {
+		aqiSum += entity.Aqi
+		if len(maxAqiEntities) == 0 ||
+			maxAqiEntities[0].Aqi < entity.Aqi {
+			maxAqiEntities = []*AqiDataEntity{entity}
+		} else if maxAqiEntities[0].Aqi == entity.Aqi {
+			maxAqiEntities = append(maxAqiEntities, entity)
+		}
+
+		if len(minAqiEntities) == 0 ||
+			minAqiEntities[0].Aqi > entity.Aqi {
+			minAqiEntities = []*AqiDataEntity{entity}
+		} else if minAqiEntities[0].Aqi == entity.Aqi {
+			minAqiEntities = append(minAqiEntities, entity)
+		}
+	}
+	return aqiSum / len(aqiDataEntities), maxAqiEntities, minAqiEntities
 }
 
 func (self *AqiService) convertAqiDataToEntity(aqiData *AqiData) *AqiDataEntity {
@@ -322,7 +385,7 @@ func (self *AqiService) convertAqiDataEntityToAqiData(entity *AqiDataEntity) *Aq
 func (self *AqiService) formatOutput(city string, aqiData *AqiData) string {
 	fTime := time.Unix(aqiData.Time, 0).Format("2006-01-02 15:04:05")
 	ds := DatasourceMap[aqiData.Datasource]
-	return fmt.Sprintf("%s的空气质量为%d, 发布时间%s, 数据来自%s", city, aqiData.Aqi, fTime, ds)
+	return fmt.Sprintf("%s的空气质量指数为%d, 发布时间%s, 数据来自%s", city, aqiData.Aqi, fTime, ds)
 }
 
 func (self *AqiService) getCityEntity(city string) *AqiCityEntity {

@@ -224,3 +224,30 @@ func (self *AqiDbHelper) GetSubscribedUser() ([]*UserSubEntity, error) {
 	}
 	return entities, nil
 }
+
+const (
+	GetAqiDataAfterTimeSql = `select a.Id, 
+	                                 a.City, 
+							         a.Aqi, 
+							         a.Time, 
+							         a.Datasource, 
+							         a.CrtDate, 
+							         a.UpdDate, 
+							         a.Version
+		                        from AqiDataEntity a
+		                       where a.City = ?
+			                     and a.Time > ?
+						    order by a.Time desc`
+)
+
+func (self *AqiDbHelper) GetAqiDataAfterTime(city string, time int64) ([]*AqiDataEntity, error) {
+	list, err := self.dbmap.Select(AqiDataEntity{}, GetAqiDataAfterTimeSql, city, time)
+	if err != nil {
+		return nil, err
+	}
+	entities := make([]*AqiDataEntity, len(list))
+	for i, item := range list {
+		entities[i] = item.(*AqiDataEntity)
+	}
+	return entities, nil
+}
