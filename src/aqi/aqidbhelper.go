@@ -9,7 +9,12 @@ import (
 	"time"
 )
 
-var Debug = false
+type AqiCityEntity struct {
+	Id          int64
+	CityName    string //pingyin
+	CityCNName  string
+	Description string
+}
 
 type AqiDataEntity struct {
 	Id         int64
@@ -84,7 +89,8 @@ func (self *AqiDbHelper) init() error {
 	aqiDataEntityTable.SetVersionCol("Version")
 	userSubEntityTable := self.dbmap.AddTable(UserSubEntity{}).SetKeys(true, "Id")
 	userSubEntityTable.SetVersionCol("Version")
-	return self.dbmap.CreateTablesOpts(true)
+	self.dbmap.AddTable(AqiCityEntity{}).SetKeys(true, "Id")
+	return self.dbmap.CreateTablesIfNotExists()
 }
 
 func (self *AqiDbHelper) Close() error {
@@ -151,4 +157,70 @@ func (self *AqiDbHelper) AddUserSub(userSub *UserSubEntity) error {
 func (self *AqiDbHelper) UpdateUserSub(userSub *UserSubEntity) error {
 	_, err := self.dbmap.Update(userSub)
 	return err
+}
+
+const (
+	GetAllCitiesSql = `select c.Id, 
+                        	c.CityName, 
+							c.CityCNName, 
+						    c.Description
+	                   from AqiCityEntity c`
+)
+
+func (self *AqiDbHelper) GetAllCities() ([]*AqiCityEntity, error) {
+	list, err := self.dbmap.Select(AqiCityEntity{}, GetAllCitiesSql)
+	if err != nil {
+		return nil, err
+	}
+	entities := make([]*AqiCityEntity, len(list))
+	for i, item := range list {
+		entities[i] = item.(*AqiCityEntity)
+	}
+	return entities, nil
+}
+
+const (
+	GetSubscribedCitiesSql = `select distinct u.City from UserSubEntity u`
+)
+
+func (self *AqiDbHelper) GetAllSubscribedCities() ([]string, error) {
+	cities := make([]string, 0)
+	rows, err := self.dbmap.Db.Query(GetSubscribedCitiesSql)
+	if err != nil {
+		return cities, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var city string
+		scanErr := rows.Scan(&city)
+		if scanErr != nil {
+			return cities, scanErr
+		}
+		cities = append(cities, city)
+	}
+	return cities, nil
+}
+
+const (
+	GetSubscribedUserSql = `select u.Id, 
+                        	       u.Username, 
+								   u.City, 
+						           u.SubStatus, 
+						           u.CrtDate, 
+						           u.UpdDate, 
+						           u.Version
+	                          from UserSubEntity u
+	                         where u.SubStatus = ?`
+)
+
+func (self *AqiDbHelper) GetSubscribedUser() ([]*UserSubEntity, error) {
+	list, err := self.dbmap.Select(UserSubEntity{}, GetSubscribedUserSql, 1)
+	if err != nil {
+		return nil, err
+	}
+	entities := make([]*UserSubEntity, len(list))
+	for i, item := range list {
+		entities[i] = item.(*UserSubEntity)
+	}
+	return entities, nil
 }

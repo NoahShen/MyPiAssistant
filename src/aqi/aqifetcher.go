@@ -1,11 +1,13 @@
 package aqi
 
 import (
+	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -42,6 +44,7 @@ func fetchAqiFromCNOfficial(city string) (*AqiData, error) {
 	if err != nil {
 		return nil, err
 	}
+	l4g.Debug("Get AQI from CN: %s", strings.TrimSpace(string(bytes)))
 	aqiItems := make([]AqiCNOfficialItem, 1)
 	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
 		return nil, unmarshalErr
@@ -85,6 +88,7 @@ func fetchAqiFromUSEmbassy(city, cityCode string) (*AqiData, error) {
 	if err != nil {
 		return nil, err
 	}
+	l4g.Debug("Get AQI from USEmbassy: %s", strings.TrimSpace(string(bytes)))
 	aqiItems := make([]AqiUSEmbassyItem, 1)
 	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
 		return nil, unmarshalErr

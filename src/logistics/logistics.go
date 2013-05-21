@@ -267,7 +267,7 @@ func (self *LogisticsService) getCompany(username string, args []string) (string
 
 func (self *LogisticsService) formatLogiOutput(records []LogisticsRecordEntity) string {
 	if len(records) == 0 {
-		return "no records"
+		return "无记录"
 	}
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
@@ -289,7 +289,7 @@ func (self *LogisticsService) getRecentSubs(username string, args []string) (str
 
 func (self *LogisticsService) formatSubsOutput(subscriptions []map[string]string) string {
 	if len(subscriptions) == 0 {
-		return "no records"
+		return "无记录"
 	}
 	var buffer bytes.Buffer
 	buffer.WriteString("\n")
