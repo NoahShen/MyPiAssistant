@@ -1,6 +1,7 @@
 package main
 
 import (
+	"aqi"
 	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,7 @@ func main() {
 
 	piAssistant.ServiceMgr.AddService(&pidownloader.PiDownloader{})
 	piAssistant.ServiceMgr.AddService(&logistics.LogisticsService{})
+	piAssistant.ServiceMgr.AddService(&aqi.AqiService{})
 
 	if initErr := piAssistant.Init(*configPath); initErr != nil { //"....//config/pidownloader.conf"
 		l4g.Error("PiAssistant init failed: %v", initErr)
@@ -201,22 +203,32 @@ func (self *PiAssistant) StopService() {
 	self.stopCh <- 1
 }
 
+const (
+	voiceMsgPrefix = "Voice IM:"
+	fileMsgPrefix  = "I sent you a file through imo:"
+)
+
 func (self *PiAssistant) handle(message *xmpp.Message) {
 	l4g.Info("Receive message from [%s]: %s", message.From, message.Body)
 	command := message.Body
-	voiceMsgPrefix := "Voice IM:"
+
 	if strings.HasPrefix(command, voiceMsgPrefix) {
 		l4g.Debug("Receive voice message: %s", command)
 		voiceUrl := strings.TrimSpace(command[len(voiceMsgPrefix):])
-		comm, voiceErr := self.convertVoiceToCommand(voiceUrl)
+		text, hasConfience, voiceErr := self.convertVoiceToText(voiceUrl)
 		if voiceErr != nil {
 			l4g.Error("Convert voice to command failed: %v", voiceErr)
-			self.xmppClient.SendChatMessage(message.From, voiceErr.Error())
+			self.xmppClient.SendChatMessage(message.From, "听不清您在说什么，请您再试一下。")
 			return
 		}
-		command = comm
+		if !hasConfience {
+			msg := fmt.Sprintf("您是不是说[%s]？我听不清，请您再试一下。", text)
+			self.xmppClient.SendChatMessage(message.From, msg)
+			return
+		}
+		command = text
 	}
-	fileMsgPrefix := "I sent you a file through imo:"
+
 	if strings.HasPrefix(command, fileMsgPrefix) {
 		l4g.Debug("Receive file command: %s", command)
 		fileUrl := strings.TrimSpace(command[len(fileMsgPrefix):])
@@ -235,7 +247,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 	commArr := strings.Split(command, " ")
 	l := len(commArr)
 	if l == 0 {
-		self.xmppClient.SendChatMessage(message.From, "Invalided command!")
+		self.xmppClient.SendChatMessage(message.From, "请输入正确的命令！")
 		return
 	}
 	comm := strings.ToLower(commArr[0])
@@ -279,7 +291,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 	}
 	var content string
 	if !findService {
-		content = fmt.Sprintf("Invalided command [%s], please type \"help\" for helping information", command)
+		content = fmt.Sprintf("命令错误[%s]！请输入\"help\"查询命令！", command)
 	} else if err != nil {
 		content = err.Error()
 	} else {
@@ -293,28 +305,16 @@ func (self *PiAssistant) getHelpMessage() string {
 	services := self.ServiceMgr.GetAllServices()
 	for _, s := range services {
 		helpMessage = helpMessage +
-			fmt.Sprintf("%s command:\n%s", s.GetServiceName(), s.GetHelpMessage())
+			fmt.Sprintf("%s 命令:\n%s", s.GetServiceName(), s.GetHelpMessage())
 		helpMessage = helpMessage + "------------------\n"
 	}
 	return helpMessage
 }
 
-func (self *PiAssistant) convertVoiceToCommand(voiceUrl string) (string, error) {
-	text, hasConfidence, convertErr := self.convertVoiceToText(voiceUrl)
-	if convertErr != nil {
-		return "", convertErr
-	}
-	if !hasConfidence {
-		msg := fmt.Sprintf("Can not understand what you said [%s]!", text)
-		return "", errors.New(msg)
-	}
-	return text, nil
-}
-
 func (self *PiAssistant) convertVoiceToText(voiceUrl string) (string, bool, error) {
-	text, c, e := speech2text.Speech2Text(voiceUrl)
-	if c < self.voiceConf.Confidence || e != nil {
-		return text, false, e
+	text, confidence, convertErr := speech2text.Speech2Text(voiceUrl)
+	if convertErr != nil {
+		return "", false, convertErr
 	}
-	return text, true, nil
+	return text, confidence >= self.voiceConf.Confidence, nil
 }
