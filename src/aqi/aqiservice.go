@@ -269,7 +269,8 @@ func (self *AqiService) updateAqiData() {
 			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
 			continue
 		}
-		if aqiData.Time > lastAqiDataEntity.Time { // save new data
+		if lastAqiDataEntity == nil ||
+			aqiData.Time > lastAqiDataEntity.Time { // save new data
 			entity := self.convertAqiDataToEntity(aqiData)
 			saveError := self.dbHelper.SaveAqiDataEntity(entity)
 			if saveError != nil {
@@ -287,29 +288,41 @@ func (self *AqiService) pushAqiDataToUser() {
 		return
 	}
 
+	aqiStatisticsCache := make(map[string]string)
 	t := time.Now().Add(time.Duration(-self.config.LatestHour) * time.Hour).Unix() //get the data of the latest several hours
 	for _, userSubEntity := range userSubEntities {
-		latestAqiDataEntities, getLatestErr := self.dbHelper.GetAqiDataAfterTime(userSubEntity.City, t)
-		if getLatestErr != nil {
-			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
-			continue
+		statisticsMessage := aqiStatisticsCache[userSubEntity.City]
+		if len(statisticsMessage) == 0 {
+			latestAqiDataEntities, getLatestErr := self.dbHelper.GetAqiDataAfterTime(userSubEntity.City, t)
+			if getLatestErr != nil {
+				l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
+				continue
+			}
+			if len(latestAqiDataEntities) == 0 {
+				l4g.Info("None latest aqi data, city: %s", userSubEntity.City)
+				continue
+			}
+
+			averageAqi, maxEntities, minEntities := self.getStatisticsAqiData(latestAqiDataEntities)
+
+			cityEntity := self.getCityEntity(userSubEntity.City)
+			aqiData := self.convertAqiDataEntityToAqiData(latestAqiDataEntities[0])
+			statisticsMessage = self.formatStatisticsOutput(cityEntity.CityCNName, aqiData, self.config.LatestHour,
+				averageAqi, maxEntities, minEntities)
+			aqiStatisticsCache[userSubEntity.City] = statisticsMessage
+		} else {
+			l4g.Debug("Hit statistics cache, city: %s", userSubEntity.City)
 		}
-
-		averageAqi, maxEntities, minEntities := self.getStatisticsAqiData(latestAqiDataEntities)
-
-		cityEntity := self.getCityEntity(userSubEntity.City)
-		aqiData := self.convertAqiDataEntityToAqiData(latestAqiDataEntities[0])
-		message := self.formatStaticsOutput(cityEntity.CityCNName, aqiData, self.config.LatestHour, averageAqi, maxEntities, minEntities)
 
 		pushMsg := &service.PushMessage{}
 		pushMsg.Type = service.Notification
 		pushMsg.Username = userSubEntity.Username
-		pushMsg.Message = message
+		pushMsg.Message = statisticsMessage
 		self.pushMsgChannel <- pushMsg
 	}
 }
 
-func (self *AqiService) formatStaticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
+func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
 
 	var buffer bytes.Buffer
 	fTime := time.Unix(latestAqi.Time, 0).Format("2006-01-02 15:04:05")
