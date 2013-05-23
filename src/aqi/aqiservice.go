@@ -257,18 +257,26 @@ func (self *AqiService) updateAqiData() {
 	}
 
 	l4g.Debug("Updating aqi data, cities: %v", cities)
-
+	nowTime := time.Now().Unix()
 	for _, city := range cities {
-		aqiData, fetchErr := FetchAqiFromWeb(city)
-		if fetchErr != nil {
-			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
-			continue
-		}
 		lastAqiDataEntity, getLatestErr := self.dbHelper.GetLatestAqiEntity(city)
 		if getLatestErr != nil {
 			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
 			continue
 		}
+
+		if lastAqiDataEntity != nil &&
+			nowTime-lastAqiDataEntity.Time < 60*60 { // update one time in one hour
+			l4g.Debug("Don't update %s aqi, it has been updated in recent an hour", city)
+			continue
+		}
+
+		aqiData, fetchErr := FetchAqiFromWeb(city)
+		if fetchErr != nil {
+			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
+			continue
+		}
+
 		if lastAqiDataEntity == nil ||
 			aqiData.Time > lastAqiDataEntity.Time { // save new data
 			entity := self.convertAqiDataToEntity(aqiData)
