@@ -36,6 +36,7 @@ type PiDownloader struct {
 	voiceCommandMap map[string]string
 	pushMsgChannel  chan<- *service.PushMessage
 	cron            *cron.Cron
+	started         bool
 }
 
 type config struct {
@@ -44,11 +45,16 @@ type config struct {
 	StatUpdateCron string `json:"statUpdateCron,omitempty"`
 }
 
-func (self *PiDownloader) GetServiceName() string {
+func (self *PiDownloader) GetServiceId() string {
 	return "pidownloader"
 }
 
+func (self *PiDownloader) GetServiceName() string {
+	return "PiDownloader"
+}
+
 func (self *PiDownloader) Init(configRawMsg *json.RawMessage, pushCh chan<- *service.PushMessage) error {
+	self.started = false
 	var c config
 	err := json.Unmarshal(*configRawMsg, &c)
 	if err != nil {
@@ -93,11 +99,17 @@ func (self *PiDownloader) Init(configRawMsg *json.RawMessage, pushCh chan<- *ser
 func (self *PiDownloader) StartService() error {
 	self.updateDownloadStat()
 	self.cron.Start()
+	self.started = true
 	return nil
+}
+
+func (self *PiDownloader) IsStarted() bool {
+	return self.started
 }
 
 func (self *PiDownloader) Stop() error {
 	self.cron.Stop()
+	self.started = false
 	return nil
 }
 

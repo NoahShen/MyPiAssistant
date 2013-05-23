@@ -29,6 +29,7 @@ type AqiService struct {
 	dbHelper        *AqiDbHelper
 	cityNameMap     map[string]*AqiCityEntity
 	cityCNNameMap   map[string]*AqiCityEntity
+	started         bool
 }
 
 type config struct {
@@ -38,11 +39,16 @@ type config struct {
 	LatestHour    int    `json:"latestHour,omitempty"`
 }
 
-func (self *AqiService) GetServiceName() string {
+func (self *AqiService) GetServiceId() string {
 	return "aqiService"
 }
 
+func (self *AqiService) GetServiceName() string {
+	return "空气质量查询"
+}
+
 func (self *AqiService) Init(configRawMsg *json.RawMessage, pushCh chan<- *service.PushMessage) error {
+	self.started = false
 	var c config
 	err := json.Unmarshal(*configRawMsg, &c)
 	if err != nil {
@@ -131,12 +137,19 @@ func (self *AqiService) GetHelpMessage() string {
 
 func (self *AqiService) StartService() error {
 	self.cron.Start()
+	self.started = true
 	return nil
+}
+
+func (self *AqiService) IsStarted() bool {
+	return self.started
 }
 
 func (self *AqiService) Stop() error {
 	self.cron.Stop()
-	return self.dbHelper.Close()
+	err := self.dbHelper.Close()
+	self.started = false
+	return err
 }
 
 func (self *AqiService) Handle(username, command string, args []string) (string, error) {
@@ -256,19 +269,26 @@ func (self *AqiService) updateAqiData() {
 		return
 	}
 
-	l4g.Debug("Updating aqi data, cities: %v", cities)
-
+	nowTime := time.Now().Unix()
 	for _, city := range cities {
-		aqiData, fetchErr := FetchAqiFromWeb(city)
-		if fetchErr != nil {
-			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
-			continue
-		}
 		lastAqiDataEntity, getLatestErr := self.dbHelper.GetLatestAqiEntity(city)
 		if getLatestErr != nil {
 			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
 			continue
 		}
+
+		if lastAqiDataEntity != nil &&
+			nowTime-lastAqiDataEntity.Time < 60*60 { // update one time in one hour
+			l4g.Debug("Don't update %s aqi, it has been updated in recent an hour", city)
+			continue
+		}
+
+		aqiData, fetchErr := FetchAqiFromWeb(city)
+		if fetchErr != nil {
+			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
+			continue
+		}
+
 		if lastAqiDataEntity == nil ||
 			aqiData.Time > lastAqiDataEntity.Time { // save new data
 			entity := self.convertAqiDataToEntity(aqiData)
