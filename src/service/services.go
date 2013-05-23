@@ -5,9 +5,11 @@ import (
 )
 
 type Service interface {
+	GetServiceId() string
 	GetServiceName() string
 	Init(*json.RawMessage, chan<- *PushMessage) error
 	StartService() error
+	IsStarted() bool
 	Stop() error
 	GetHelpMessage() string
 	CommandFilter(string, []string) bool

@@ -76,13 +76,19 @@ type LogisticsService struct {
 	config          *config
 	pushMsgChannel  chan<- *service.PushMessage
 	cron            *cron.Cron
+	started         bool
 }
 
-func (self *LogisticsService) GetServiceName() string {
+func (self *LogisticsService) GetServiceId() string {
 	return "logisticsquery"
 }
 
+func (self *LogisticsService) GetServiceName() string {
+	return "物流查询"
+}
+
 func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- *service.PushMessage) error {
+	self.started = false
 	var c config
 	err := json.Unmarshal(*configRawMsg, &c)
 	if err != nil {
@@ -122,12 +128,19 @@ func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 
 func (self *LogisticsService) StartService() error {
 	self.cron.Start()
+	self.started = true
 	return nil
+}
+
+func (self *LogisticsService) IsStarted() bool {
+	return self.started
 }
 
 func (self *LogisticsService) Stop() error {
 	self.cron.Stop()
-	return self.logisticsdb.Close()
+	err := self.logisticsdb.Close()
+	self.started = false
+	return err
 }
 
 func (self *LogisticsService) GetHelpMessage() string {
