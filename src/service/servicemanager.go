@@ -26,6 +26,29 @@ func (self *ServiceManager) RemoveService(service Service) {
 	}
 }
 
+func (self *ServiceManager) GetService(serviceId string) Service {
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for _, service := range self.services {
+		if service.GetServiceId() == serviceId {
+			return service
+		}
+	}
+	return nil
+}
+
+func (self *ServiceManager) GetStartedServices() []Service {
+	startedServices := make([]Service, 0)
+	self.mutex.Lock()
+	defer self.mutex.Unlock()
+	for _, service := range self.services {
+		if service.IsStarted() {
+			startedServices = append(startedServices, service)
+		}
+	}
+	return startedServices
+}
+
 func (self *ServiceManager) GetAllServices() []Service {
 	newServices := make([]Service, len(self.services))
 	copy(newServices, self.services)

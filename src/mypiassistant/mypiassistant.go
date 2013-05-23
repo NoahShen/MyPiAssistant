@@ -51,8 +51,7 @@ type PiAssistant struct {
 	stopCh           chan int
 	ServiceMgr       *service.ServiceManager
 	pushMsgCh        chan *service.PushMessage
-	voiceConf        voiceConfig
-	xmppConf         xmppConfig
+	piAssiConf       PiAssistantConfig
 }
 
 func NewPiAssistant() *PiAssistant {
@@ -63,18 +62,6 @@ func NewPiAssistant() *PiAssistant {
 	return pi
 }
 
-type xmppConfig struct {
-	Host       string `json:"host,omitempty"`
-	User       string `json:"username,omitempty"`
-	Pwd        string `json:"password,omitempty"`
-	Master     string `json:"master,omitempty"`
-	PingEnable bool   `json:"pingEnable,omitempty"`
-}
-
-type voiceConfig struct {
-	Confidence float64 `json:"confidence,omitempty"`
-}
-
 func (self *PiAssistant) Init(configPath string) error {
 	fileData, readErr := ioutil.ReadFile(configPath)
 	if readErr != nil {
@@ -83,72 +70,70 @@ func (self *PiAssistant) Init(configPath string) error {
 	}
 
 	l4g.Info("Loading config file: %s", configPath)
-	var configMap map[string]*json.RawMessage
-	unmarshalErr := json.Unmarshal(fileData, &configMap)
+	var piAssiConf PiAssistantConfig
+	unmarshalErr := json.Unmarshal(fileData, &piAssiConf)
 	if unmarshalErr != nil {
 		l4g.Error("Config file formt error: %v", unmarshalErr)
 		return unmarshalErr
 	}
+	self.piAssiConf = piAssiConf
 
-	var voiceConf voiceConfig
-	voiceConfErr := json.Unmarshal(*configMap["voice"], &voiceConf)
-	if voiceConfErr != nil {
-		l4g.Error("Read voice config error: %v", voiceConfErr)
-		return voiceConfErr
-	}
-	self.voiceConf = voiceConf
-
-	serviceInitErr := self.initServices(configMap)
+	serviceInitErr := self.initServices()
 	if serviceInitErr != nil {
 		l4g.Error("Service init failed: %v", serviceInitErr)
 		return serviceInitErr
 	}
 	l4g.Info("Initialize services successful!")
 
-	var xmppConf xmppConfig
-	xmppConfigErr := json.Unmarshal(*configMap["xmpp"], &xmppConf)
-	if xmppConfigErr != nil {
-		l4g.Error("Read xmpp config error: %v", xmppConfigErr)
-		return xmppConfigErr
-	}
-	// connect xmpp server
-	connectError := self.connectXmpp(xmppConf)
-	if connectError != nil {
-		l4g.Error("Connect xmpp server error: %v", connectError)
-		return connectError
-	}
-	self.xmppConf = xmppConf
-	l4g.Info("Xmpp is connected!")
 	return nil
 }
 
-func (self *PiAssistant) connectXmpp(xmppConf xmppConfig) error {
+func (self *PiAssistant) connectXmppServer() error {
+	xmppConf := self.piAssiConf.XmppConf
 	self.xmppClient = xmpp.NewXmppClient(xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, false, 1})
 	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
 	return xmppErr
 }
 
-func (self *PiAssistant) initServices(configMap map[string]*json.RawMessage) error {
-	services := self.ServiceMgr.GetAllServices()
-	for _, s := range services {
-		initErr := s.Init(configMap[s.GetServiceName()], self.pushMsgCh)
-		if initErr != nil {
-			return errors.New(fmt.Sprintf("%s init error: %v", s.GetServiceName(), initErr))
+func (self *PiAssistant) initServices() error {
+	for _, serviceConfi := range self.piAssiConf.ServicesConfig {
+		if serviceConfi.Autostart {
+			service := self.ServiceMgr.GetService(serviceConfi.ServiceId)
+			if service != nil {
+				initErr := service.Init(serviceConfi.ConfigRaw, self.pushMsgCh)
+				if initErr != nil {
+					return errors.New(fmt.Sprintf("%s init error: %v", service.GetServiceId(), initErr))
+				}
+				l4g.Info("%s initialize successful!", service.GetServiceId())
+			}
 		}
 	}
 	return nil
 }
 
 func (self *PiAssistant) StartService() {
-	services := self.ServiceMgr.GetAllServices()
-	for _, s := range services {
-		startErr := s.StartService()
-		if startErr != nil {
-			l4g.Error("Start service error: %v", startErr)
-			return
+	for _, serviceConfi := range self.piAssiConf.ServicesConfig {
+		if serviceConfi.Autostart {
+			service := self.ServiceMgr.GetService(serviceConfi.ServiceId)
+			if service != nil {
+				startErr := service.StartService()
+				if startErr != nil {
+					l4g.Error("%s service start error: %v", service.GetServiceId(), startErr)
+					return
+				}
+				l4g.Info("%s start successful!", service.GetServiceId())
+			}
 		}
 	}
 	l4g.Info("Start services successful!")
+
+	// connect xmpp server
+	connectError := self.connectXmppServer()
+	if connectError != nil {
+		l4g.Error("Connect xmpp server error: %v", connectError)
+		return
+	}
+	l4g.Info("Xmpp is connected!")
 
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
@@ -178,7 +163,7 @@ func (self *PiAssistant) StartService() {
 
 func (self *PiAssistant) handleSubscribe(subPresence *xmpp.Presence) {
 	msg := fmt.Sprintf("%s request to add me as a contact", subPresence.From)
-	self.xmppClient.SendChatMessage(self.xmppConf.Master, msg)
+	self.xmppClient.SendChatMessage(self.piAssiConf.XmppConf.Master, msg)
 }
 
 func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
@@ -193,7 +178,7 @@ func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
 func (self *PiAssistant) StopService() {
 	self.xmppClient.RemoveHandler(self.chathandler)
 	self.xmppClient.Disconnect()
-	services := self.ServiceMgr.GetAllServices()
+	services := self.ServiceMgr.GetStartedServices()
 	for _, s := range services {
 		stopErr := s.Stop()
 		if stopErr != nil {
@@ -264,7 +249,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 	if comm == "subscribed" {
 		sender := strings.ToLower(xmpp.ToBareJID(message.From))
 		content := ""
-		if sender == strings.ToLower(self.xmppConf.Master) {
+		if sender == strings.ToLower(self.piAssiConf.XmppConf.Master) {
 			subscribed := &xmpp.Presence{
 				To:   args[0],
 				Type: "subscribed",
@@ -281,7 +266,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 	var resp string
 	var err error
 	findService := false
-	services := self.ServiceMgr.GetAllServices()
+	services := self.ServiceMgr.GetStartedServices()
 	for _, s := range services {
 		if s.CommandFilter(comm, args) {
 			resp, err = s.Handle(username, comm, args)
@@ -302,7 +287,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 
 func (self *PiAssistant) getHelpMessage() string {
 	helpMessage := "\n"
-	services := self.ServiceMgr.GetAllServices()
+	services := self.ServiceMgr.GetStartedServices()
 	for _, s := range services {
 		helpMessage = helpMessage +
 			fmt.Sprintf("%s 命令:\n%s", s.GetServiceName(), s.GetHelpMessage())
@@ -316,5 +301,5 @@ func (self *PiAssistant) convertVoiceToText(voiceUrl string) (string, bool, erro
 	if convertErr != nil {
 		return "", false, convertErr
 	}
-	return text, confidence >= self.voiceConf.Confidence, nil
+	return text, confidence >= self.piAssiConf.VoiceConf.Confidence, nil
 }
