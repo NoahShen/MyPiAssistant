@@ -12,6 +12,9 @@ import (
 )
 
 func TestPiDownloader(t *testing.T) {
+	xmpp.Debug = true
+	aqi.Debug = true
+	logistics.Debug = true
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	l4g.LoadConfiguration("../../config/logConfig.xml")
 	defer time.Sleep(2 * time.Second)
@@ -19,8 +22,7 @@ func TestPiDownloader(t *testing.T) {
 	piAssistant.ServiceMgr.AddService(&pidownloader.PiDownloader{})
 	piAssistant.ServiceMgr.AddService(&logistics.LogisticsService{})
 	piAssistant.ServiceMgr.AddService(&aqi.AqiService{})
-	xmpp.Debug = true
-	aqi.Debug = true
+
 	if initErr := piAssistant.Init("../../config/piassistant.conf"); initErr != nil {
 		t.Fatal("init error:", initErr)
 	}
