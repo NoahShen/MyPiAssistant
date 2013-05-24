@@ -263,34 +263,22 @@ func (self *AqiService) unsubAqiData(username string, args []string) (string, er
 }
 
 func (self *AqiService) updateAqiData() {
-	cities, getCitiesErr := self.dbHelper.GetAllSubscribedCities()
+	cities, getCitiesErr := self.dbHelper.GetNeedUpdateCities(60 * 60) // update one time in one hour
 	if getCitiesErr != nil {
-		l4g.Error("Get subscribed cities error: %v", getCitiesErr)
+		l4g.Error("Get need update cities error: %v", getCitiesErr)
 		return
 	}
 
-	nowTime := time.Now().Unix()
-	for _, city := range cities {
-		lastAqiDataEntity, getLatestErr := self.dbHelper.GetLatestAqiEntity(city)
-		if getLatestErr != nil {
-			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
-			continue
-		}
+	l4g.Debug("Need updating cities: %v", cities)
 
-		if lastAqiDataEntity != nil &&
-			nowTime-lastAqiDataEntity.Time < 60*60 { // update one time in one hour
-			l4g.Debug("Don't update %s aqi, it has been updated in recent an hour", city)
-			continue
-		}
-
-		aqiData, fetchErr := FetchAqiFromWeb(city)
+	for _, cityInfo := range cities {
+		aqiData, fetchErr := FetchAqiFromWeb(cityInfo.City)
 		if fetchErr != nil {
 			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
 			continue
 		}
 
-		if lastAqiDataEntity == nil ||
-			aqiData.Time > lastAqiDataEntity.Time { // save new data
+		if aqiData.Time > cityInfo.LatestUpdateTime { // save new data
 			entity := self.convertAqiDataToEntity(aqiData)
 			saveError := self.dbHelper.SaveAqiDataEntity(entity)
 			if saveError != nil {
@@ -357,7 +345,7 @@ func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiDa
 			}
 			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
 		}
-		buffer.WriteString(fmt.Sprintf("达到最高，最高指数为:%d", maxEntities[0].Aqi))
+		buffer.WriteString(fmt.Sprintf("最高，指数为:%d", maxEntities[0].Aqi))
 	}
 
 	if len(minEntities) > 0 {
@@ -368,7 +356,7 @@ func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiDa
 			}
 			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
 		}
-		buffer.WriteString(fmt.Sprintf("达到最低，最低指数为:%d", minEntities[0].Aqi))
+		buffer.WriteString(fmt.Sprintf("最低，指数为:%d", minEntities[0].Aqi))
 	}
 	return buffer.String()
 
