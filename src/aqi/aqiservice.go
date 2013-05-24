@@ -333,28 +333,29 @@ func (self *AqiService) pushAqiDataToUser() {
 func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
 
 	var buffer bytes.Buffer
-	fTime := time.Unix(latestAqi.Time, 0).Format("2006-01-02 15:04:05")
+	fTime := time.Unix(latestAqi.Time, 0).Format("2006-01-02 15:04")
 	ds := DatasourceMap[latestAqi.Datasource]
-	buffer.WriteString(fmt.Sprintf("%s的空气质量指数为%d, 发布时间%s, 数据来自%s\n", cityName, latestAqi.Aqi, fTime, ds))
-	buffer.WriteString(fmt.Sprintf("最近%d小时的平均指数为%d", latestHour, avgAqi))
+	buffer.WriteString(fmt.Sprintf("%s空气质量指数为%d (%s)\n更新时间：%s\n数据来自%s", cityName, latestAqi.Aqi, self.getAqiLevel(latestAqi.Aqi), fTime, ds))
+	buffer.WriteString(fmt.Sprintf("\n-------"))
+	buffer.WriteString(fmt.Sprintf("\n最近%d小时的平均指数为%d", latestHour, avgAqi))
 	if len(maxEntities) > 0 {
-		buffer.WriteString("\n空气质量指数在")
+		buffer.WriteString("\n在")
 		for i, e := range maxEntities {
 			if i != 0 {
 				buffer.WriteString(",")
 			}
-			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
+			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04"))
 		}
 		buffer.WriteString(fmt.Sprintf("最高，指数为:%d", maxEntities[0].Aqi))
 	}
 
 	if len(minEntities) > 0 {
-		buffer.WriteString("\n空气质量指数在")
+		buffer.WriteString("\n在")
 		for i, e := range minEntities {
 			if i != 0 {
 				buffer.WriteString(",")
 			}
-			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04:05"))
+			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04"))
 		}
 		buffer.WriteString(fmt.Sprintf("最低，指数为:%d", minEntities[0].Aqi))
 	}
@@ -404,9 +405,9 @@ func (self *AqiService) convertAqiDataEntityToAqiData(entity *AqiDataEntity) *Aq
 }
 
 func (self *AqiService) formatOutput(city string, aqiData *AqiData) string {
-	fTime := time.Unix(aqiData.Time, 0).Format("2006-01-02 15:04:05")
+	fTime := time.Unix(aqiData.Time, 0).Format("2006-01-02 15:04")
 	ds := DatasourceMap[aqiData.Datasource]
-	return fmt.Sprintf("%s的空气质量指数为%d, 发布时间%s, 数据来自%s", city, aqiData.Aqi, fTime, ds)
+	return fmt.Sprintf("%s空气质量指数为%d (%s)\n更新时间：%s\n数据来自%s", city, aqiData.Aqi, self.getAqiLevel(aqiData.Aqi), fTime, ds)
 }
 
 func (self *AqiService) getCityEntity(city string) *AqiCityEntity {
@@ -418,4 +419,21 @@ func (self *AqiService) getCityEntity(city string) *AqiCityEntity {
 		return entity
 	}
 	return nil
+}
+
+func (self *AqiService) getAqiLevel(aqi int) string {
+	switch {
+	case aqi <= 50:
+		return "一级：优"
+	case 50 < aqi && aqi <= 100:
+		return "二级：良"
+	case 100 < aqi && aqi <= 150:
+		return "三级：轻度污染"
+	case 150 < aqi && aqi <= 200:
+		return "四级：中度污染"
+	case 200 < aqi && aqi <= 300:
+		return "五级：重度污染"
+	}
+	// > 300
+	return "六级：严重污染"
 }
