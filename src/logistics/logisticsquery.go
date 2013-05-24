@@ -1,7 +1,6 @@
 package logistics
 
 import (
-	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"utils"
 )
+
+var Debug = false
 
 const (
 	QUERY_URL = "http://www.kuaidi100.com/query?type=%s&postid=%s&id=1&valicode=&temp=%f"
@@ -48,7 +49,10 @@ func Query(com, logisticsId string) (*LogisticsInfo, error) {
 	if readErr != nil {
 		return nil, readErr
 	}
-	l4g.Debug("Query logistics response: %s", strings.TrimSpace(string(bytes)))
+	if Debug {
+		fmt.Printf("***Query logistics from web: %s", strings.TrimSpace(string(bytes)))
+	}
+
 	logisticsInfo := &LogisticsInfo{}
 	if unmarshalErr := json.Unmarshal(bytes, logisticsInfo); unmarshalErr != nil {
 		return nil, unmarshalErr
