@@ -14,7 +14,7 @@ func createDBHelper(t *testing.T) *AqiDbHelper {
 	return aqiDbhelper
 }
 
-func TestGetLatestAqiEntity(t *testing.T) {
+func _TestGetLatestAqiEntity(t *testing.T) {
 	aqiDbhelper := createDBHelper(t)
 	aqiDataEntity, err := aqiDbhelper.GetLatestAqiEntity("shanghai")
 	if err != nil {

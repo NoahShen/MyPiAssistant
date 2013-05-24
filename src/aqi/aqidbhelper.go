@@ -180,23 +180,43 @@ func (self *AqiDbHelper) GetAllCities() ([]*AqiCityEntity, error) {
 }
 
 const (
-	GetSubscribedCitiesSql = `select distinct u.City from UserSubEntity u`
+	GetNeedUpdateCitiesSql = `select * from (
+                                select u.City,
+                                       (select max(b.Time) 
+							              from AqiDataEntity b 
+							             where b.City = u.City) "latestUpdateTime"
+                                       from UserSubEntity u
+                                   group by u.City
+                                ) a
+                              where a.latestUpdateTime < strftime('%s','now') - ?
+                                 or a.latestUpdateTime is null`
 )
 
-func (self *AqiDbHelper) GetAllSubscribedCities() ([]string, error) {
-	cities := make([]string, 0)
-	rows, err := self.dbmap.Db.Query(GetSubscribedCitiesSql)
+type NeedUpdateCity struct {
+	City             string
+	LatestUpdateTime int64 // can be null
+}
+
+func (self *AqiDbHelper) GetNeedUpdateCities(timeAgo int64) ([]NeedUpdateCity, error) {
+	cities := make([]NeedUpdateCity, 0)
+	rows, err := self.dbmap.Db.Query(GetNeedUpdateCitiesSql, timeAgo)
 	if err != nil {
 		return cities, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var city string
-		scanErr := rows.Scan(&city)
+		cityInfo := NeedUpdateCity{}
+		var ni sql.NullInt64
+		scanErr := rows.Scan(&cityInfo.City, &ni)
 		if scanErr != nil {
 			return cities, scanErr
 		}
-		cities = append(cities, city)
+		if ni.Valid {
+			cityInfo.LatestUpdateTime = int64(ni.Int64)
+		} else {
+			cityInfo.LatestUpdateTime = -1
+		}
+		cities = append(cities, cityInfo)
 	}
 	return cities, nil
 }

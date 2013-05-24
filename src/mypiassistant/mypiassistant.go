@@ -193,6 +193,8 @@ const (
 	fileMsgPrefix  = "I sent you a file through imo:"
 )
 
+var welcomeMsg = fmt.Sprintf("欢迎使用小Pi助手，输入help查看小Pi可以做什么。\n小Pi还支持语音命令，试试说\"上海的空气质量\"")
+
 func (self *PiAssistant) handle(message *xmpp.Message) {
 	l4g.Info("Receive message from [%s]: %s", message.From, message.Body)
 	command := message.Body
@@ -255,6 +257,7 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 				Type: "subscribed",
 			}
 			self.xmppClient.Send(subscribed)
+			self.xmppClient.SendChatMessage(args[0], welcomeMsg)
 			content = fmt.Sprintf("subscribed %s as a contact", args[0])
 		} else {
 			content = "You are not my master!"
