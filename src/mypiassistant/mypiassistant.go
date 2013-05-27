@@ -48,6 +48,7 @@ type PiAssistant struct {
 	xmppClient       *xmpp.XmppClient
 	chathandler      xmpp.Handler
 	subscribeHandler xmpp.Handler
+	connErrorHandler xmpp.Handler
 	stopCh           chan int
 	ServiceMgr       *service.ServiceManager
 	pushMsgCh        chan *service.PushMessage
@@ -135,6 +136,9 @@ func (self *PiAssistant) StartService() {
 	}
 	l4g.Info("Xmpp is connected!")
 
+	self.connErrorHandler = xmpp.NewConnErrorHandler()
+	self.xmppClient.AddHandler(self.connErrorHandler)
+
 	self.chathandler = xmpp.NewChatHandler()
 	self.xmppClient.AddHandler(self.chathandler)
 
@@ -149,6 +153,8 @@ func (self *PiAssistant) StartService() {
 	stopService := false
 	for !stopService {
 		select {
+		case connEvent := <-self.connErrorHandler.GetEventCh():
+			self.handleConnErr(connEvent)
 		case event := <-self.chathandler.GetEventCh():
 			self.handle(event.Stanza.(*xmpp.Message))
 		case subsEvent := <-self.subscribeHandler.GetEventCh():
@@ -159,6 +165,10 @@ func (self *PiAssistant) StartService() {
 			stopService = true
 		}
 	}
+}
+
+func (self *PiAssistant) handleConnErr(connEvent *xmpp.Event) {
+	l4g.Error("Xmpp connection error, message:%s, error: %v", connEvent.Message, connEvent.Error)
 }
 
 func (self *PiAssistant) handleSubscribe(subPresence *xmpp.Presence) {

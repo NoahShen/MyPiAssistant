@@ -178,24 +178,13 @@ func (self *AqiService) getCurrentAqi(username string, args []string) (string, e
 	if cityEntity == nil {
 		return "", errors.New("不支持该城市的空气质量查询！")
 	}
-	aqiDataEntity, err := self.dbHelper.GetLatestAqiEntity(cityEntity.CityName)
+	statisticsMessage := self.getStatisticsAqiDataMessage(cityEntity.CityName)
+	if len(statisticsMessage) > 0 {
+		return statisticsMessage, nil
+	}
+	aqiData, err := FetchAqiFromWeb(cityEntity.CityName)
 	if err != nil {
-		return "", err
-	}
-	var aqiData *AqiData
-	if aqiDataEntity != nil {
-		now := time.Now().Unix()
-		if (now - aqiDataEntity.Time) < 60*60*2 { // latest data within 2 hours
-			aqiData = self.convertAqiDataEntityToAqiData(aqiDataEntity)
-		}
-	}
-
-	if aqiData == nil { // no recent data in DB, get it from web
-		aqi, err := FetchAqiFromWeb(cityEntity.CityName)
-		if err != nil {
-			return "", errors.New("获取数据失败！")
-		}
-		aqiData = aqi
+		return "", errors.New("获取数据失败！")
 	}
 	return self.formatOutput(cityEntity.CityCNName, aqiData), nil
 }
@@ -285,6 +274,8 @@ func (self *AqiService) updateAqiData() {
 				l4g.Error("Save AqiDataEntity error: %v", saveError)
 				continue
 			}
+			delete(aqiStatisticsCache, cityInfo.City)
+			l4g.Debug("Remove %s statistics cache.", cityInfo.City)
 		}
 	}
 }
@@ -296,38 +287,47 @@ func (self *AqiService) pushAqiDataToUser() {
 		return
 	}
 
-	aqiStatisticsCache := make(map[string]string)
-	t := time.Now().Add(time.Duration(-self.config.LatestHour) * time.Hour).Unix() //get the data of the latest several hours
 	for _, userSubEntity := range userSubEntities {
-		statisticsMessage := aqiStatisticsCache[userSubEntity.City]
+		statisticsMessage := self.getStatisticsAqiDataMessage(userSubEntity.City)
 		if len(statisticsMessage) == 0 {
-			latestAqiDataEntities, getLatestErr := self.dbHelper.GetAqiDataAfterTime(userSubEntity.City, t)
-			if getLatestErr != nil {
-				l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
-				continue
-			}
-			if len(latestAqiDataEntities) == 0 {
-				l4g.Info("None latest aqi data, city: %s", userSubEntity.City)
-				continue
-			}
-
-			averageAqi, maxEntities, minEntities := self.getStatisticsAqiData(latestAqiDataEntities)
-
-			cityEntity := self.getCityEntity(userSubEntity.City)
-			aqiData := self.convertAqiDataEntityToAqiData(latestAqiDataEntities[0])
-			statisticsMessage = self.formatStatisticsOutput(cityEntity.CityCNName, aqiData, self.config.LatestHour,
-				averageAqi, maxEntities, minEntities)
-			aqiStatisticsCache[userSubEntity.City] = statisticsMessage
-		} else {
-			l4g.Debug("Hit statistics cache, city: %s", userSubEntity.City)
+			continue
 		}
-
 		pushMsg := &service.PushMessage{}
 		pushMsg.Type = service.Notification
 		pushMsg.Username = userSubEntity.Username
 		pushMsg.Message = statisticsMessage
 		self.pushMsgChannel <- pushMsg
 	}
+}
+
+var aqiStatisticsCache = map[string]string{}
+
+func (self *AqiService) getStatisticsAqiDataMessage(city string) string {
+	statisticsMessage := aqiStatisticsCache[city]
+	if len(statisticsMessage) == 0 {
+		//get the data of the latest several hours
+		t := time.Now().Add(time.Duration(-self.config.LatestHour) * time.Hour).Unix()
+		latestAqiDataEntities, getLatestErr := self.dbHelper.GetAqiDataAfterTime(city, t)
+		if getLatestErr != nil {
+			l4g.Error("GetLatestAqiEntity error: %v", getLatestErr)
+			return ""
+		}
+		if len(latestAqiDataEntities) == 0 {
+			l4g.Info("None recent aqi data, city: %s", city)
+			return ""
+		}
+
+		averageAqi, maxEntities, minEntities := self.calStatisticsAqiData(latestAqiDataEntities)
+
+		cityEntity := self.getCityEntity(city)
+		aqiData := self.convertAqiDataEntityToAqiData(latestAqiDataEntities[0])
+		statisticsMessage = self.formatStatisticsOutput(cityEntity.CityCNName, aqiData, self.config.LatestHour,
+			averageAqi, maxEntities, minEntities)
+		aqiStatisticsCache[city] = statisticsMessage
+	} else {
+		l4g.Debug("Hit statistics cache, city: %s", city)
+	}
+	return statisticsMessage
 }
 
 func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
@@ -346,7 +346,7 @@ func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiDa
 			}
 			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04"))
 		}
-		buffer.WriteString(fmt.Sprintf("最高，指数为:%d", maxEntities[0].Aqi))
+		buffer.WriteString(fmt.Sprintf("最高，为:%d", maxEntities[0].Aqi))
 	}
 
 	if len(minEntities) > 0 {
@@ -357,14 +357,14 @@ func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiDa
 			}
 			buffer.WriteString(time.Unix(e.Time, 0).Format("15:04"))
 		}
-		buffer.WriteString(fmt.Sprintf("最低，指数为:%d", minEntities[0].Aqi))
+		buffer.WriteString(fmt.Sprintf("最低，为:%d", minEntities[0].Aqi))
 	}
 	return buffer.String()
 
 }
 
-// get statistics aqi data, max aqi and min aqi may be more than one entity
-func (self *AqiService) getStatisticsAqiData(aqiDataEntities []*AqiDataEntity) (int, []*AqiDataEntity, []*AqiDataEntity) {
+// calculate statistics aqi data, max aqi and min aqi may be more than one entity
+func (self *AqiService) calStatisticsAqiData(aqiDataEntities []*AqiDataEntity) (int, []*AqiDataEntity, []*AqiDataEntity) {
 	maxAqiEntities := make([]*AqiDataEntity, 0)
 	minAqiEntities := make([]*AqiDataEntity, 0)
 	aqiSum := 0
