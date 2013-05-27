@@ -44,7 +44,7 @@ func fetchAqiFromCNOfficial(city string) (*AqiData, error) {
 		return nil, err
 	}
 	if Debug {
-		fmt.Printf("***Get AQI from CN: %s", strings.TrimSpace(string(bytes)))
+		fmt.Printf("***Get %s AQI from CN: %s\n", city, strings.TrimSpace(string(bytes)))
 	}
 
 	aqiItems := make([]AqiCNOfficialItem, 1)
@@ -91,7 +91,7 @@ func fetchAqiFromUSEmbassy(city, cityCode string) (*AqiData, error) {
 		return nil, err
 	}
 	if Debug {
-		fmt.Printf("***Get AQI from USEmbassy: %s", strings.TrimSpace(string(bytes)))
+		fmt.Printf("***Get %s AQI from USEmbassy: %s\n", city, strings.TrimSpace(string(bytes)))
 	}
 	aqiItems := make([]AqiUSEmbassyItem, 1)
 	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
