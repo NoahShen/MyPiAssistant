@@ -91,7 +91,8 @@ func (self *PiAssistant) Init(configPath string) error {
 
 func (self *PiAssistant) connectXmppServer() error {
 	xmppConf := self.piAssiConf.XmppConf
-	self.xmppClient = xmpp.NewXmppClient(xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, false, 1})
+	xmppClientConfig := xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, xmppConf.ReconnectEnable, 5}
+	self.xmppClient = xmpp.NewXmppClient(xmppClientConfig)
 	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
 	return xmppErr
 }
@@ -187,6 +188,8 @@ func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
 
 func (self *PiAssistant) StopService() {
 	self.xmppClient.RemoveHandler(self.chathandler)
+	self.xmppClient.RemoveHandler(self.subscribeHandler)
+	self.xmppClient.RemoveHandler(self.connErrorHandler)
 	self.xmppClient.Disconnect()
 	services := self.ServiceMgr.GetStartedServices()
 	for _, s := range services {

@@ -5,11 +5,12 @@ import (
 )
 
 type XmppConfig struct {
-	Host       string `json:"host,omitempty"`
-	User       string `json:"username,omitempty"`
-	Pwd        string `json:"password,omitempty"`
-	Master     string `json:"master,omitempty"`
-	PingEnable bool   `json:"pingEnable,omitempty"`
+	Host            string `json:"host,omitempty"`
+	User            string `json:"username,omitempty"`
+	Pwd             string `json:"password,omitempty"`
+	Master          string `json:"master,omitempty"`
+	PingEnable      bool   `json:"pingEnable,omitempty"`
+	ReconnectEnable bool   `json:"reconnectEnable,omitempty"`
 }
 
 type VoiceConfig struct {
