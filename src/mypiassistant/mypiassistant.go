@@ -188,6 +188,8 @@ func (self *PiAssistant) handlePushMsg(pushMsg *service.PushMessage) {
 
 func (self *PiAssistant) StopService() {
 	self.xmppClient.RemoveHandler(self.chathandler)
+	self.xmppClient.RemoveHandler(self.subscribeHandler)
+	self.xmppClient.RemoveHandler(self.connErrorHandler)
 	self.xmppClient.Disconnect()
 	services := self.ServiceMgr.GetStartedServices()
 	for _, s := range services {
