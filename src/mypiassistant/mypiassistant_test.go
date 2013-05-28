@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-func TestPiDownloader(t *testing.T) {
+func TestPiAssistant(t *testing.T) {
 	xmpp.Debug = true
 	aqi.Debug = true
 	logistics.Debug = true

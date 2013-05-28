@@ -91,7 +91,8 @@ func (self *PiAssistant) Init(configPath string) error {
 
 func (self *PiAssistant) connectXmppServer() error {
 	xmppConf := self.piAssiConf.XmppConf
-	self.xmppClient = xmpp.NewXmppClient(xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, false, 1})
+	xmppClientConfig := xmpp.ClientConfig{xmppConf.PingEnable, 3, 30 * time.Second, xmppConf.ReconnectEnable, 5}
+	self.xmppClient = xmpp.NewXmppClient(xmppClientConfig)
 	xmppErr := self.xmppClient.Connect(xmppConf.Host, xmppConf.User, xmppConf.Pwd)
 	return xmppErr
 }
