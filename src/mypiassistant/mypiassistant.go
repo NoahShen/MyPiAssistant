@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"logistics"
 	"os"
+	"piai"
 	"pidownloader"
 	"runtime"
 	"service"
@@ -46,6 +47,7 @@ func main() {
 
 type PiAssistant struct {
 	xmppClient       *xmpp.XmppClient
+	piai             *piai.PiAi
 	chathandler      xmpp.Handler
 	subscribeHandler xmpp.Handler
 	connErrorHandler xmpp.Handler
@@ -60,6 +62,7 @@ func NewPiAssistant() *PiAssistant {
 	pi.stopCh = make(chan int, 1)
 	pi.ServiceMgr = &service.ServiceManager{}
 	pi.pushMsgCh = make(chan *service.PushMessage, 10)
+
 	return pi
 }
 
@@ -79,6 +82,7 @@ func (self *PiAssistant) Init(configPath string) error {
 	}
 	self.piAssiConf = piAssiConf
 
+	self.piai = piai.NewPiAi(self.piAssiConf.PiAiConf.SessionTimeout)
 	serviceInitErr := self.initServices()
 	if serviceInitErr != nil {
 		l4g.Error("Service init failed: %v", serviceInitErr)
@@ -291,13 +295,14 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 		}
 	}
 	var content string
-	if !findService {
-		content = fmt.Sprintf("命令错误[%s]！请输入\"help\"查询命令！", command)
-	} else if err != nil {
+	if err != nil {
 		content = err.Error()
-	} else {
+	} else if findService && len(resp) > 0 {
 		content = resp
+	} else {
+		content, err = self.piai.Talk(username, command)
 	}
+
 	self.xmppClient.SendChatMessage(message.From, content)
 }
 

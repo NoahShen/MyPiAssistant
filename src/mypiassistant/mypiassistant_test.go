@@ -3,6 +3,7 @@ package main
 import (
 	"aqi"
 	l4g "code.google.com/p/log4go"
+	"github.com/NoahShen/go-simsimi"
 	"github.com/NoahShen/go-xmpp"
 	"logistics"
 	"pidownloader"
@@ -15,6 +16,7 @@ func TestPiAssistant(t *testing.T) {
 	xmpp.Debug = true
 	aqi.Debug = true
 	logistics.Debug = true
+	simsimi.Debug = true
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	l4g.LoadConfiguration("../../config/logConfig.xml")
 	defer time.Sleep(2 * time.Second)
