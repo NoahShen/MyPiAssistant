@@ -13,6 +13,10 @@ type XmppConfig struct {
 	ReconnectEnable bool   `json:"reconnectEnable,omitempty"`
 }
 
+type PiAiConfig struct {
+	SessionTimeout int64 `json:"sessionTimeout,omitempty"`
+}
+
 type VoiceConfig struct {
 	Confidence float64 `json:"confidence,omitempty"`
 }
@@ -25,6 +29,7 @@ type ServiceConfig struct {
 
 type PiAssistantConfig struct {
 	XmppConf       *XmppConfig     `json:"xmpp,omitempty"`
+	PiAiConf       *PiAiConfig     `json:"piai,omitempty"`
 	VoiceConf      *VoiceConfig    `json:"voice,omitempty"`
 	ServicesConfig []ServiceConfig `json:"services,omitempty"`
 }
