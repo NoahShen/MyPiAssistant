@@ -8,6 +8,7 @@ import (
 	"logistics"
 	"pidownloader"
 	"runtime"
+	"speech2text"
 	"testing"
 	"time"
 )
@@ -17,6 +18,7 @@ func TestPiAssistant(t *testing.T) {
 	aqi.Debug = true
 	logistics.Debug = true
 	simsimi.Debug = true
+	speech2text.Debug = true
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	l4g.LoadConfiguration("../../config/logConfig.xml")
 	defer time.Sleep(2 * time.Second)
