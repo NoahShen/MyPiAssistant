@@ -190,7 +190,13 @@ func (self *LogisticsService) subLogi(username string, args []string) (string, e
 	if err := self.SubscribeLogistics(username, logisticsId, company, logisticsName); err != nil {
 		return "", err
 	}
-	return "OK", nil
+	recordEntities, err := self.GetCurrentLogistics(logisticsId, company)
+	if err != nil {
+		return "", err
+	}
+	progress := self.formatLogiOutput(recordEntities)
+	messageContent := fmt.Sprintf("[%s]的物流信息:%s", logisticsName, progress)
+	return messageContent, nil
 }
 
 func (self *LogisticsService) checkCompany(company string) (string, bool) {

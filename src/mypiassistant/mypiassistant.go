@@ -199,7 +199,7 @@ func (self *PiAssistant) StopService() {
 	for _, s := range services {
 		stopErr := s.Stop()
 		if stopErr != nil {
-			l4g.Error("Stop service error: %v", stopErr)
+			l4g.Error("%s service stop error: %v", s.GetServiceId(), stopErr)
 		}
 	}
 	self.stopCh <- 1
@@ -301,6 +301,10 @@ func (self *PiAssistant) handle(message *xmpp.Message) {
 		content = resp
 	} else {
 		content, err = self.piai.Talk(username, command)
+		if err != nil {
+			l4g.Error("Simsimi talk error: %v", err)
+			content = "不懂你在说什么啊？"
+		}
 	}
 
 	self.xmppClient.SendChatMessage(message.From, content)
