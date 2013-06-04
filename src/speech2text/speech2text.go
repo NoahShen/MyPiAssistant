@@ -2,9 +2,9 @@ package speech2text
 
 import (
 	"bytes"
-	l4g "code.google.com/p/log4go"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"mime/multipart"
@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 )
+
+var Debug = false
 
 const (
 	SPEECH_URL = "http://www.google.com/speech-api/v1/recognize?xjerr=1&client=chromium&lang=zh-CN"
@@ -30,7 +32,9 @@ type hypotheses struct {
 }
 
 func Speech2Text(voiceUrl string) (string, float64, error) {
-	l4g.Debug("Downloading file: %s", voiceUrl)
+	if Debug {
+		fmt.Printf("Downloading file: %s\n", voiceUrl)
+	}
 	voiceFilePath, downloadFileErr := downloadFile(voiceUrl)
 	defer os.Remove(voiceFilePath)
 	if downloadFileErr != nil {
@@ -40,7 +44,9 @@ func Speech2Text(voiceUrl string) (string, float64, error) {
 	voiceFmt := filepath.Ext(voiceUrl)
 	switch strings.ToLower(voiceFmt) {
 	case ".mp3":
-		l4g.Debug("Voice format is mp3, starting convert to flac")
+		if Debug {
+			fmt.Printf("Voice format is mp3, starting convert to flac\n")
+		}
 		p, convertErr := mp3ToFlac(voiceFilePath)
 		if convertErr != nil {
 			return "", 0, convertErr
@@ -75,7 +81,9 @@ func convertToText(voiceFile string) (string, float64, error) {
 	if readErr != nil {
 		return "", 0, readErr
 	}
-	l4g.Debug("Speech response json: %s", strings.TrimSpace(string(bytes)))
+	if Debug {
+		fmt.Printf("Speech response json: %s\n", strings.TrimSpace(string(bytes)))
+	}
 	speechResult := &speechRespJson{}
 	if unmarshalErr := json.Unmarshal(bytes, speechResult); unmarshalErr != nil {
 		return "", 0, unmarshalErr
