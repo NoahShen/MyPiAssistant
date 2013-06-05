@@ -243,11 +243,13 @@ func (self *LogisticsService) resetState(username string, args []string) (string
 		if err1 != nil {
 			return "", err1
 		}
-		logisticsInfoEntity, err2 := self.logisticsdb.GetLogisticsInfoByEntityId(userLogisticsRef.LogisticsInfoEntityId)
-		if err2 != nil {
-			return "", err2
+		if userLogisticsRef != nil {
+			logisticsInfoEntity, err2 := self.logisticsdb.GetLogisticsInfoByEntityId(userLogisticsRef.LogisticsInfoEntityId)
+			if err2 != nil {
+				return "", err2
+			}
+			logiEntity = logisticsInfoEntity
 		}
-		logiEntity = logisticsInfoEntity
 	case 2:
 		com := args[0]
 		company, check := self.checkCompany(com)
