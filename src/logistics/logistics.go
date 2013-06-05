@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LOGISTICS_UPDATE_TIMEOUT = 1 * 24 * 60 * 60
+	LOGISTICS_UPDATE_TIMEOUT = 2 * 24 * 60 * 60
 )
 
 var companyMap = map[string]string{
@@ -114,6 +114,7 @@ func (self *LogisticsService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 		"getrecentsub":   (*LogisticsService).getRecentSubs,
 		"getcurrentlogi": (*LogisticsService).getCurrentLogi,
 		"getcom":         (*LogisticsService).getCompany,
+		"resetstate":     (*LogisticsService).resetState,
 	}
 	self.aliasCommandMap = map[string]string{
 		"跟踪快递": "sublogi",
@@ -228,6 +229,47 @@ func (self *LogisticsService) unsubLogi(username string, args []string) (string,
 		}
 	default:
 		return "", errors.New("参数错误！")
+	}
+	return "OK", nil
+}
+
+func (self *LogisticsService) resetState(username string, args []string) (string, error) {
+	argsLen := len(args)
+	var logiEntity *LogisticsInfoEntity
+	switch argsLen {
+	case 1:
+		name := args[0]
+		userLogisticsRef, err1 := self.logisticsdb.GetUserLogisticsRefByName(username, name)
+		if err1 != nil {
+			return "", err1
+		}
+		logisticsInfoEntity, err2 := self.logisticsdb.GetLogisticsInfoByEntityId(userLogisticsRef.LogisticsInfoEntityId)
+		if err2 != nil {
+			return "", err2
+		}
+		logiEntity = logisticsInfoEntity
+	case 2:
+		com := args[0]
+		company, check := self.checkCompany(com)
+		if !check {
+			return "", errors.New("错误的公司名称或代码!")
+		}
+		logisticsId := args[1]
+		logisticsInfoEntity, err := self.logisticsdb.GetLogisticsInfoByIdCompany(logisticsId, company)
+		if err != nil {
+			return "", err
+		}
+		logiEntity = logisticsInfoEntity
+	default:
+		return "", errors.New("参数错误！")
+	}
+	if logiEntity == nil {
+		return "", errors.New("该快递不存在！")
+	}
+	logiEntity.State = -1
+	logiEntity.LastUpdateTime = -1
+	if updateErr := self.logisticsdb.SaveLogisticsInfo(logiEntity); updateErr != nil {
+		return "", updateErr
 	}
 	return "OK", nil
 }
