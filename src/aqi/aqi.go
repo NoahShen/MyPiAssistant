@@ -22,3 +22,17 @@ type AqiData struct {
 	Time       int64
 	Datasource DataSource
 }
+
+type byTime []*AqiData
+
+func (s byTime) Len() int {
+	return len(s)
+}
+
+func (s byTime) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
+func (s byTime) Less(i, j int) bool {
+	return s[i].Time > s[j].Time
+}

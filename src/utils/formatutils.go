@@ -37,3 +37,14 @@ func FormatFloat(f float64, decimal int) string {
 func FormatTime(sec int64) string {
 	return (time.Duration(sec) * time.Second).String()
 }
+
+func ConvertToUnixTime(timeLayout, timeStr string) (int64, error) {
+	recTime, parseErr := time.Parse(timeLayout, timeStr)
+	if parseErr != nil {
+		return -1, parseErr
+	}
+	localT := time.Date(recTime.Year(), recTime.Month(), recTime.Day(),
+		recTime.Hour(), recTime.Minute(), recTime.Second(), recTime.Nanosecond(),
+		time.Local)
+	return localT.Unix(), nil
+}
