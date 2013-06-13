@@ -2,27 +2,24 @@ package aqi
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sort"
 	"strings"
-	"time"
+	"utils"
 )
 
 var usEmbassyMap = map[string]string{
-	"beijing":   "10",
-	"shanghai":  "21",
-	"guangzhou": "20",
-	"chengdu":   "28",
+	"beijing":   "1",
+	"chengdu":   "2",
+	"guangzhou": "3",
+	"shanghai":  "4",
+	"shenyang":  "5",
 }
 
-const (
-	usEmbassyUrl  = "http://pm25.sinaapp.com/if/getaqis.php?city=%s&type=1"
-	cnOfficialUrl = "http://pm25.in/api/querys/only_aqi.json?city=%s&token=FydAKx5y1BBbqXeLcxyi&stations=no"
-)
-
-func FetchAqiFromWeb(city string) (*AqiData, error) {
+func FetchAqiFromWeb(city string) ([]*AqiData, error) {
 	cityCode, ok := usEmbassyMap[city]
 	if ok {
 		return fetchAqiFromUSEmbassy(city, cityCode)
@@ -30,14 +27,18 @@ func FetchAqiFromWeb(city string) (*AqiData, error) {
 	return fetchAqiFromCNOfficial(city)
 }
 
+const (
+	cnOfficialUrl = "http://pm25.in/api/querys/only_aqi.json?city=%s&token=FydAKx5y1BBbqXeLcxyi&stations=no"
+)
+
 type AqiCNOfficialItem struct {
-	Aqi       int       `json:"aqi,omitempty"`
-	Area      string    `json:"area,omitempty"`
-	Quality   string    `json:"quality,omitempty"`
-	TimePoint time.Time `json:"time_point,omitempty"`
+	Aqi       int    `json:"aqi,omitempty"`
+	Area      string `json:"area,omitempty"`
+	Quality   string `json:"quality,omitempty"`
+	TimePoint string `json:"time_point,omitempty"`
 }
 
-func fetchAqiFromCNOfficial(city string) (*AqiData, error) {
+func fetchAqiFromCNOfficial(city string) ([]*AqiData, error) {
 	url := fmt.Sprintf(cnOfficialUrl, city)
 	bytes, err := getHttpResponseContent(url)
 	if err != nil {
@@ -51,40 +52,56 @@ func fetchAqiFromCNOfficial(city string) (*AqiData, error) {
 	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
-	aqiItem := aqiItems[0]
-	aqiData := &AqiData{}
-	aqiData.City = city
-	aqiData.Aqi = aqiItem.Aqi
-	//get timepoint is "2013-05-16T16:00:00Z", lack of timezone
-	originalTime := aqiItem.TimePoint
-	correntTime := time.Date(originalTime.Year(), originalTime.Month(), originalTime.Day(),
-		originalTime.Hour(), originalTime.Minute(), originalTime.Second(), originalTime.Nanosecond(),
-		time.Local)
-	aqiData.Time = correntTime.Unix()
-	aqiData.Datasource = CNOfficial
-	return aqiData, nil
+	aqiDataArr := make([]*AqiData, 0)
+	for _, aqiItem := range aqiItems {
+		aqiData := &AqiData{}
+		aqiData.City = city
+		aqiData.Aqi = aqiItem.Aqi
+		//2006-01-02T15:04:05Z
+		time, parseErr := utils.ConvertToUnixTime("2006-01-02T15:04:05Z", aqiItem.TimePoint)
+		if parseErr != nil {
+			return aqiDataArr, parseErr
+		}
+		aqiData.Time = time
+		aqiData.Datasource = CNOfficial
+		aqiDataArr = append(aqiDataArr, aqiData)
+	}
+	sort.Sort(byTime(aqiDataArr))
+	return aqiDataArr, nil
 }
 
-type AqiUSEmbassyItem struct {
-	Aqi       int   `json:"i,omitempty"`
-	TimeShort int64 `json:"t,omitempty"`
+const (
+	usEmbassyUrl = "http://www.stateair.net/web/rss/1/%s.xml"
+)
+
+type rss2_0Feed struct {
+	XMLName xml.Name       `xml:"rss"`
+	Channel *rss2_0Channel `xml:"channel"`
 }
 
-type byTime []AqiUSEmbassyItem
-
-func (s byTime) Len() int {
-	return len(s)
+type rss2_0Channel struct {
+	XMLName     xml.Name     `xml:"channel"`
+	Title       string       `xml:"title"`
+	Description string       `xml:"description"`
+	Link        string       `xml:"link"`
+	Langueage   string       `xml:"language"`
+	Ttl         int          `xml:"ttl"`
+	Items       []rss2_0Item `xml:"item"`
 }
 
-func (s byTime) Swap(i, j int) {
-	s[i], s[j] = s[j], s[i]
+type rss2_0Item struct {
+	XMLName     xml.Name `xml:"item"`
+	Title       string   `xml:"title"`
+	Description string   `xml:"description"`
+	Link        string   `xml:"link"`
+	Param       string   `xml:"Param"`
+	Conc        float64  `xml:"Conc"`
+	AQI         int      `xml:"AQI"`
+	Desc        string   `xml:"Desc"`
+	Date        string   `xml:"ReadingDateTime"`
 }
 
-func (s byTime) Less(i, j int) bool {
-	return s[i].TimeShort < s[j].TimeShort
-}
-
-func fetchAqiFromUSEmbassy(city, cityCode string) (*AqiData, error) {
+func fetchAqiFromUSEmbassy(city, cityCode string) ([]*AqiData, error) {
 	url := fmt.Sprintf(usEmbassyUrl, cityCode)
 	bytes, err := getHttpResponseContent(url)
 	if err != nil {
@@ -93,18 +110,30 @@ func fetchAqiFromUSEmbassy(city, cityCode string) (*AqiData, error) {
 	if Debug {
 		fmt.Printf("***Get %s AQI from USEmbassy: %s\n", city, strings.TrimSpace(string(bytes)))
 	}
-	aqiItems := make([]AqiUSEmbassyItem, 1)
-	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
+	feed := rss2_0Feed{}
+	if unmarshalErr := xml.Unmarshal(bytes, &feed); unmarshalErr != nil {
 		return nil, unmarshalErr
 	}
-	sort.Sort(byTime(aqiItems))
-	aqiItem := aqiItems[len(aqiItems)-1]
-	aqiData := &AqiData{}
-	aqiData.City = city
-	aqiData.Aqi = aqiItem.Aqi
-	aqiData.Time = aqiItem.TimeShort * 3600
-	aqiData.Datasource = USEmbassy
-	return aqiData, nil
+	aqiDataArr := make([]*AqiData, 0)
+	rssChannel := feed.Channel
+	if rssChannel != nil {
+		rssItems := rssChannel.Items
+		for _, rssItem := range rssItems {
+			aqiData := &AqiData{}
+			aqiData.City = city
+			aqiData.Aqi = rssItem.AQI
+			time, parseErr := utils.ConvertToUnixTime("01/02/2006 3:04:05 PM", rssItem.Date)
+			if parseErr != nil {
+				return aqiDataArr, parseErr
+			}
+			aqiData.Time = time
+			aqiData.Datasource = USEmbassy
+			aqiDataArr = append(aqiDataArr, aqiData)
+		}
+	}
+	sort.Sort(byTime(aqiDataArr))
+
+	return aqiDataArr, nil
 }
 
 func getHttpResponseContent(url string) ([]byte, error) {

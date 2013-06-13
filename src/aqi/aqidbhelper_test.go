@@ -29,7 +29,7 @@ func _TestSaveAqiData(t *testing.T) {
 	if fetchErr != nil {
 		t.Fatal(fetchErr)
 	}
-	entitySh := convertAqiDataToEntity(aqiSh)
+	entitySh := convertAqiDataToEntity(aqiSh[0])
 	saveShError := aqiDbhelper.SaveAqiDataEntity(entitySh)
 	if saveShError != nil {
 		t.Fatal(saveShError)
@@ -38,7 +38,7 @@ func _TestSaveAqiData(t *testing.T) {
 	if fetchErr1 != nil {
 		t.Fatal(fetchErr1)
 	}
-	entityBj := convertAqiDataToEntity(aqiBj)
+	entityBj := convertAqiDataToEntity(aqiBj[0])
 	saveBjError := aqiDbhelper.SaveAqiDataEntity(entityBj)
 	if saveBjError != nil {
 		t.Fatal(saveBjError)
@@ -48,7 +48,7 @@ func _TestSaveAqiData(t *testing.T) {
 	if fetchErr2 != nil {
 		t.Fatal(fetchErr2)
 	}
-	entitySz := convertAqiDataToEntity(aqiSz)
+	entitySz := convertAqiDataToEntity(aqiSz[0])
 	saveSzError := aqiDbhelper.SaveAqiDataEntity(entitySz)
 	if saveSzError != nil {
 		t.Fatal(saveSzError)

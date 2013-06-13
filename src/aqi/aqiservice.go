@@ -186,7 +186,7 @@ func (self *AqiService) getCurrentAqi(username string, args []string) (string, e
 	if err != nil {
 		return "", errors.New("获取数据失败！")
 	}
-	return self.formatOutput(cityEntity.CityCNName, aqiData), nil
+	return self.formatOutput(cityEntity.CityCNName, aqiData[0]), nil
 }
 
 func (self *AqiService) subAqiData(username string, args []string) (string, error) {
@@ -267,16 +267,19 @@ func (self *AqiService) updateAqiData() {
 			continue
 		}
 
-		if aqiData.Time > cityInfo.LatestUpdateTime { // save new data
-			entity := self.convertAqiDataToEntity(aqiData)
-			saveError := self.dbHelper.SaveAqiDataEntity(entity)
-			if saveError != nil {
-				l4g.Error("Save AqiDataEntity error: %v", saveError)
-				continue
+		for _, aqi := range aqiData {
+			if aqi.Time > cityInfo.LatestUpdateTime { // save new data
+				entity := self.convertAqiDataToEntity(aqi)
+				saveError := self.dbHelper.SaveAqiDataEntity(entity)
+				if saveError != nil {
+					l4g.Error("Save AqiDataEntity error: %v", saveError)
+					continue
+				}
+				delete(aqiStatisticsCache, cityInfo.City)
+				l4g.Debug("Remove %s statistics cache.", cityInfo.City)
 			}
-			delete(aqiStatisticsCache, cityInfo.City)
-			l4g.Debug("Remove %s statistics cache.", cityInfo.City)
 		}
+
 	}
 }
 
@@ -333,11 +336,11 @@ func (self *AqiService) getStatisticsAqiDataMessage(city string) string {
 func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiData, latestHour, avgAqi int, maxEntities, minEntities []*AqiDataEntity) string {
 
 	var buffer bytes.Buffer
-	fTime := time.Unix(latestAqi.Time, 0).Format("2006-01-02 15:04")
+	fTime := time.Unix(latestAqi.Time, 0).Format("15:04")
 	ds := DatasourceMap[latestAqi.Datasource]
-	buffer.WriteString(fmt.Sprintf("%s空气质量指数为%d (%s)\n更新时间：%s\n数据来自%s", cityName, latestAqi.Aqi, self.getAqiLevel(latestAqi.Aqi), fTime, ds))
+	buffer.WriteString(fmt.Sprintf("%s的空气指数为%d (%s)", fTime, latestAqi.Aqi, self.getAqiLevel(latestAqi.Aqi)))
 	buffer.WriteString(fmt.Sprintf("\n-------"))
-	buffer.WriteString(fmt.Sprintf("\n最近%d小时的平均指数为%d", latestHour, avgAqi))
+	buffer.WriteString(fmt.Sprintf("\n%s最近%d小时的平均指数为%d", cityName, latestHour, avgAqi))
 	if len(maxEntities) > 0 {
 		buffer.WriteString("\n在")
 		for i, e := range maxEntities {
@@ -359,6 +362,7 @@ func (self *AqiService) formatStatisticsOutput(cityName string, latestAqi *AqiDa
 		}
 		buffer.WriteString(fmt.Sprintf("最低，为:%d", minEntities[0].Aqi))
 	}
+	buffer.WriteString(fmt.Sprintf("\n数据来自%s", ds))
 	return buffer.String()
 
 }
