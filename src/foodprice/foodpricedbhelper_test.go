@@ -1,7 +1,7 @@
 package foodprice
 
 import (
-	//"fmt"
+	"fmt"
 	"testing"
 )
 
@@ -39,7 +39,7 @@ func convertCityFoodPriceToEntity(foodPrice *CityFoodPrice) *CityFoodPriceEntity
 	return entity
 }
 
-func TestAddDistrictFoodPrice(t *testing.T) {
+func _TestAddDistrictFoodPrice(t *testing.T) {
 	prices, err := FetchDistrictFoodPrice("qingpu")
 	if err != nil {
 		t.Fatal(err)
@@ -66,4 +66,15 @@ func convertDistrictFoodPriceToEntity(foodPrice *DistrictFoodPrice) []*DistrictF
 		entities = append(entities, entity)
 	}
 	return entities
+}
+
+func _TestGetLatestCityFoodPrice(t *testing.T) {
+	dbHelper := createDBHelper(t)
+	entities, err := dbHelper.GetLatestCityFoodPriceEntity("shanghai", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entities {
+		fmt.Printf("entity:%+v\n", e)
+	}
 }

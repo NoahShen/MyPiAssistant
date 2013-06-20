@@ -71,7 +71,7 @@ func (self *FoodPriceService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 		//self.pushAqiDataToUser()
 	})
 	self.cron.AddFunc(c.PriceUpdateCron, func() {
-		//self.updateAqiData()
+		self.updateFoodPriceData()
 	})
 	self.commandMap = map[string]processFunc{
 		"foodprice": (*FoodPriceService).getFoodPrice,
@@ -239,12 +239,12 @@ func (self *FoodPriceService) getCityFoodPrice(city string) (string, error) {
 		return foodPriceMsg, nil
 	}
 	var cityFoodPrices []*CityFoodPrice
-	entities, err := self.dbHelper.GetLatestCityFoodPriceEntity(city)
+	entities, err := self.dbHelper.GetLatestCityFoodPriceEntity(city, int64(overTime))
 	if err != nil {
 		return "", err
 	}
-	if len(entities) > 0 &&
-		time.Now().Unix()-entities[0].Time < overTime {
+
+	if len(entities) > 0 {
 		cityFoodPrices = self.convertCityEntityToFoodPrice(entities)
 	}
 	if len(cityFoodPrices) == 0 {
@@ -302,12 +302,11 @@ func (self *FoodPriceService) getDistrictFoodPrice(district string) (string, err
 		return foodPriceMsg, nil
 	}
 	var districtFoodPrices []*DistrictFoodPrice
-	entities, err := self.dbHelper.GetLatestDistrictFoodPriceEntity(district)
+	entities, err := self.dbHelper.GetLatestDistrictFoodPriceEntity(district, int64(overTime))
 	if err != nil {
 		return "", err
 	}
-	if len(entities) > 0 &&
-		time.Now().Unix()-entities[0].Time < overTime {
+	if len(entities) > 0 {
 		districtFoodPrices = self.convertDistrictEntityToFoodPrice(entities)
 	}
 	if len(districtFoodPrices) == 0 {
@@ -367,4 +366,85 @@ func (self *FoodPriceService) formatDistrictFoodPrice(districtFoodPrices []*Dist
 	fTime := time.Unix(districtFoodPrices[0].Time, 0).Format("2006-01-02 15:04")
 	buffer.WriteString(fmt.Sprintf("\n采集时间：%s", fTime))
 	return buffer.String()
+}
+
+func (self *FoodPriceService) updateFoodPriceData() {
+	for cityCode, _ := range CityMap {
+		lastUpdateTime, timeErr := self.dbHelper.GetLastUpdateCityPriceTime(cityCode)
+		if timeErr != nil {
+			l4g.Error("get %s lastUpdateTime error:%v", cityCode, timeErr)
+			continue
+		}
+		cityFoodPrices, err := FetchCityFoodPrice(cityCode)
+		if err != nil {
+			l4g.Error("get %s food price from web error:%v", cityCode, err)
+			continue
+		}
+		if len(cityFoodPrices) == 0 {
+			l4g.Error("get %s food price from web is empty", cityCode)
+			continue
+		}
+		if cityFoodPrices[0].Time > lastUpdateTime {
+			for _, cityFoodPrice := range cityFoodPrices {
+				self.dbHelper.AddCityFoodPrice(self.convertCityFoodPriceToEntity(cityFoodPrice))
+			}
+			delete(cityFoodPriceMsgCache, cityCode)
+			l4g.Debug("update %s food price success.", cityCode)
+		}
+	}
+
+	for districtCode, _ := range DistrictMap {
+		lastUpdateTime, timeErr := self.dbHelper.GetLastUpdateDistrictPriceTime(districtCode)
+		if timeErr != nil {
+			l4g.Error("get %s lastUpdateTime error:%v", districtCode, timeErr)
+			continue
+		}
+		districtFoodPrices, err := FetchDistrictFoodPrice(districtCode)
+		if err != nil {
+			l4g.Error("get %s food price from web error:%v", districtCode, err)
+			continue
+		}
+		if len(districtFoodPrices) == 0 {
+			l4g.Error("get %s food price from web is empty", districtCode)
+			continue
+		}
+		if districtFoodPrices[0].Time > lastUpdateTime {
+			for _, districtFoodPrice := range districtFoodPrices {
+				entities := self.convertDistrictFoodPriceToEntity(districtFoodPrice)
+				for _, e := range entities {
+					self.dbHelper.AddDistrictFoodPrice(e)
+				}
+			}
+			delete(districtFoodPriceMsgCache, districtCode)
+			l4g.Debug("update %s food price success.", districtCode)
+		}
+	}
+}
+
+func (self *FoodPriceService) convertCityFoodPriceToEntity(foodPrice *CityFoodPrice) *CityFoodPriceEntity {
+	entity := &CityFoodPriceEntity{}
+	entity.City = foodPrice.City
+	entity.Time = foodPrice.Time
+	entity.Food = foodPrice.Food
+	entity.Unit = foodPrice.Unit
+	entity.AvgPrice = foodPrice.AvgPrice
+	entity.MaxPrice = foodPrice.MaxPrice
+	entity.MaxSite = foodPrice.MaxSite
+	entity.MinPrice = foodPrice.MinPrice
+	entity.MinSite = foodPrice.MinSite
+	return entity
+}
+
+func (self *FoodPriceService) convertDistrictFoodPriceToEntity(foodPrice *DistrictFoodPrice) []*DistrictFoodPriceEntity {
+	entities := make([]*DistrictFoodPriceEntity, 0)
+	for _, p := range foodPrice.PricesSites {
+		entity := &DistrictFoodPriceEntity{}
+		entity.District = foodPrice.District
+		entity.Time = foodPrice.Time
+		entity.Food = foodPrice.Food
+		entity.Price = p.Price
+		entity.Site = p.Site
+		entities = append(entities, entity)
+	}
+	return entities
 }

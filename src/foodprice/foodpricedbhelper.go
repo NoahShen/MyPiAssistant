@@ -103,26 +103,28 @@ func (self *FoodPriceDbHelper) AddDistrictFoodPrice(entity *DistrictFoodPriceEnt
 }
 
 const (
-	LastCityFoodPriceEntitySql = `select a.Id, 
-	                           a.City, 
-							   a.Time, 
-							   a.Food, 
-							   a.Unit, 
-							   a.AvgPrice, 
-							   a.MaxPrice,
-							   a.MaxSite,
-							   a.MinPrice,
-							   a.MinSite,
-							   a.CrtDate, 
-							   a.UpdDate, 
-							   a.Version
-		                  from cityfoodpriceentity a
-		                 where a.City = ?
-		                   and a.Time = (select max(b.Time) from cityfoodpriceentity b where b.City = ?)`
+	LastCityFoodPriceEntitySql = `
+    select a.Id, 
+           a.City, 
+           a.Time, 
+           a.Food, 
+           a.Unit, 
+           a.AvgPrice, 
+           a.MaxPrice,
+           a.MaxSite,
+           a.MinPrice,
+           a.MinSite,
+           a.CrtDate, 
+           a.UpdDate, 
+           a.Version
+      from cityfoodpriceentity a
+     where a.City = ?
+       and a.Time = (select max(b.Time) from cityfoodpriceentity b where b.City = ?)
+       and a.Time > strftime('%s','now') - ?`
 )
 
-func (self *FoodPriceDbHelper) GetLatestCityFoodPriceEntity(city string) ([]*CityFoodPriceEntity, error) {
-	list, err := self.dbmap.Select(CityFoodPriceEntity{}, LastCityFoodPriceEntitySql, city, city)
+func (self *FoodPriceDbHelper) GetLatestCityFoodPriceEntity(city string, latestTime int64) ([]*CityFoodPriceEntity, error) {
+	list, err := self.dbmap.Select(CityFoodPriceEntity{}, LastCityFoodPriceEntitySql, city, city, latestTime)
 	if err != nil {
 		return nil, err
 	}
@@ -131,6 +133,16 @@ func (self *FoodPriceDbHelper) GetLatestCityFoodPriceEntity(city string) ([]*Cit
 		entities[i] = item.(*CityFoodPriceEntity)
 	}
 	return entities, nil
+}
+
+const (
+	LastUpdateCityPriceTimeSql = `
+    select ifnull(max(b.Time), 0) from cityfoodpriceentity b where b.City = ?`
+)
+
+func (self *FoodPriceDbHelper) GetLastUpdateCityPriceTime(city string) (int64, error) {
+	time, err := self.dbmap.SelectInt(LastUpdateCityPriceTimeSql, city)
+	return time, err
 }
 
 const (
@@ -146,11 +158,12 @@ const (
            a.Version
       from districtfoodpriceentity a
      where a.District = ?
-       and a.Time = (select max(b.Time) from districtfoodpriceentity b where b.District = ?)`
+       and a.Time = (select max(b.Time) from districtfoodpriceentity b where b.District = ?)
+	   and a.Time > strftime('%s','now') - ?`
 )
 
-func (self *FoodPriceDbHelper) GetLatestDistrictFoodPriceEntity(district string) ([]*DistrictFoodPriceEntity, error) {
-	list, err := self.dbmap.Select(DistrictFoodPriceEntity{}, LastDistrictFoodPriceEntitySql, district, district)
+func (self *FoodPriceDbHelper) GetLatestDistrictFoodPriceEntity(district string, latestTime int64) ([]*DistrictFoodPriceEntity, error) {
+	list, err := self.dbmap.Select(DistrictFoodPriceEntity{}, LastDistrictFoodPriceEntitySql, district, district, latestTime)
 	if err != nil {
 		return nil, err
 	}
@@ -159,4 +172,14 @@ func (self *FoodPriceDbHelper) GetLatestDistrictFoodPriceEntity(district string)
 		entities[i] = item.(*DistrictFoodPriceEntity)
 	}
 	return entities, nil
+}
+
+const (
+	LastUpdateDistrictPriceTimeSql = `
+    select ifnull(max(b.Time), 0) from districtfoodpriceentity b where b.District = ?`
+)
+
+func (self *FoodPriceDbHelper) GetLastUpdateDistrictPriceTime(district string) (int64, error) {
+	time, err := self.dbmap.SelectInt(LastUpdateDistrictPriceTimeSql, district)
+	return time, err
 }
