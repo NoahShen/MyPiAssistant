@@ -268,7 +268,9 @@ func (self *AqiService) updateAqiData() {
 		}
 		removeCache := false
 		for _, aqi := range aqiData {
-			if aqi.Time > cityInfo.LatestUpdateTime { // save new data
+			if aqi.Time > cityInfo.LatestUpdateTime &&
+				aqi.Aqi >= 0 { // filter invalied aqi data
+				// save new data
 				entity := self.convertAqiDataToEntity(aqi)
 				saveError := self.dbHelper.SaveAqiDataEntity(entity)
 				if saveError != nil {
