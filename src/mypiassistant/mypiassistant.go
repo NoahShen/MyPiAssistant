@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"foodprice"
 	"github.com/NoahShen/go-xmpp"
 	"io/ioutil"
 	"logistics"
@@ -37,6 +38,7 @@ func main() {
 	piAssistant.ServiceMgr.AddService(&pidownloader.PiDownloader{})
 	piAssistant.ServiceMgr.AddService(&logistics.LogisticsService{})
 	piAssistant.ServiceMgr.AddService(&aqi.AqiService{})
+	piAssistant.ServiceMgr.AddService(&foodprice.FoodPriceService{})
 
 	if initErr := piAssistant.Init(*configPath); initErr != nil { //"....//config/pidownloader.conf"
 		l4g.Error("PiAssistant init failed: %v", initErr)
