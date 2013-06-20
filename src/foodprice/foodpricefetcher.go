@@ -6,6 +6,7 @@ import (
 	"github.com/NoahShen/goquery"
 	"strconv"
 	"strings"
+	"time"
 	"utils"
 )
 
@@ -17,16 +18,25 @@ const (
 	cityFoodPriceUrl = "http://www.shjjcd.gov.cn/www/more/"
 )
 
-func FetchCityFoodPrice(city string) ([]*CityFoodPrice, error) {
-	cityFoodPrices := make([]*CityFoodPrice, 0)
+func GetCityFoodPriceUrl(city string) (string, error) {
 	_, ok := CityMap[city]
 	if !ok {
-		return cityFoodPrices, errors.New("Not support this city yet!")
+		return "", errors.New("Not support this city yet!")
 	}
+	return cityFoodPriceUrl, nil
+}
 
+func FetchCityFoodPrice(city string) ([]*CityFoodPrice, error) {
+	cityFoodPrices := make([]*CityFoodPrice, 0)
+	url, urlErr := GetCityFoodPriceUrl(city)
+	if urlErr != nil {
+		return cityFoodPrices, urlErr
+	}
+	// do not use server cache
+	url = fmt.Sprintf(url+"?_=%d", time.Now().UTC().UnixNano())
 	var doc *goquery.Document
 	var e error
-	if doc, e = goquery.NewDocument(cityFoodPriceUrl); e != nil {
+	if doc, e = goquery.NewDocument(url); e != nil {
 		return cityFoodPrices, e
 	}
 
@@ -82,13 +92,21 @@ const (
 	districtFoodPriceUrl = "http://www.shjjcd.gov.cn/www/%s"
 )
 
-func FetchDistrictFoodPrice(district string) ([]*DistrictFoodPrice, error) {
-	districtFoodPrices := make([]*DistrictFoodPrice, 0)
+func GetDistrictFoodPriceUrl(district string) (string, error) {
 	districtCode, ok := DistrictMap[district]
 	if !ok {
-		return districtFoodPrices, errors.New("Not support this district yet!")
+		return "", errors.New("Not support this district yet!")
 	}
-	url := fmt.Sprintf(districtFoodPriceUrl, districtCode)
+	return fmt.Sprintf(districtFoodPriceUrl, districtCode), nil
+}
+
+func FetchDistrictFoodPrice(district string) ([]*DistrictFoodPrice, error) {
+	districtFoodPrices := make([]*DistrictFoodPrice, 0)
+	url, urlErr := GetDistrictFoodPriceUrl(district)
+	if urlErr != nil {
+		return districtFoodPrices, urlErr
+	}
+	url = fmt.Sprintf(url+"?_=%d", time.Now().UTC().UnixNano())
 	var doc *goquery.Document
 	var e error
 	if doc, e = goquery.NewDocument(url); e != nil {
@@ -112,21 +130,20 @@ func FetchDistrictFoodPrice(district string) ([]*DistrictFoodPrice, error) {
 	doc.Find("#WebSitePrice tr").FilterFunction(func(i int, s *goquery.Selection) bool {
 		return !s.HasClass("title")
 	}).Each(func(i int, s *goquery.Selection) {
-		food := ""
+		districtFoodPrice := &DistrictFoodPrice{}
+		districtFoodPrice.District = district
+		districtFoodPrice.Time = time
 		s.Find("td").Each(func(tdI int, tdSele *goquery.Selection) {
 			if tdI == 0 {
-				food = strings.TrimSpace(tdSele.Text())
+				districtFoodPrice.Food = strings.TrimSpace(tdSele.Text())
 				return
 			}
-			districtFoodPrice := &DistrictFoodPrice{}
-			districtFoodPrice.District = district
-			districtFoodPrice.Time = time
-			districtFoodPrice.Food = food
-			districtFoodPrice.Price, _ = strconv.ParseFloat(tdSele.Text(), 64)
-			districtFoodPrice.Site = titles[tdI]
-			districtFoodPrices = append(districtFoodPrices, districtFoodPrice)
+			priceSite := &PriceSite{}
+			priceSite.Price, _ = strconv.ParseFloat(tdSele.Text(), 64)
+			priceSite.Site = titles[tdI]
+			districtFoodPrice.PricesSites = append(districtFoodPrice.PricesSites, *priceSite)
 		})
-
+		districtFoodPrices = append(districtFoodPrices, districtFoodPrice)
 	})
 	return districtFoodPrices, nil
 }

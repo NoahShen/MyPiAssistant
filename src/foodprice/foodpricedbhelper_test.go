@@ -46,16 +46,24 @@ func TestAddDistrictFoodPrice(t *testing.T) {
 	}
 	dbHelper := createDBHelper(t)
 	for _, price := range prices {
-		dbHelper.AddDistrictFoodPrice(convertDistrictFoodPriceToEntity(price))
+		entities := convertDistrictFoodPriceToEntity(price)
+		for _, e := range entities {
+			dbHelper.AddDistrictFoodPrice(e)
+		}
+
 	}
 }
 
-func convertDistrictFoodPriceToEntity(foodPrice *DistrictFoodPrice) *DistrictFoodPriceEntity {
-	entity := &DistrictFoodPriceEntity{}
-	entity.District = foodPrice.District
-	entity.Time = foodPrice.Time
-	entity.Food = foodPrice.Food
-	entity.Price = foodPrice.Price
-	entity.Site = foodPrice.Site
-	return entity
+func convertDistrictFoodPriceToEntity(foodPrice *DistrictFoodPrice) []*DistrictFoodPriceEntity {
+	entities := make([]*DistrictFoodPriceEntity, 0)
+	for _, p := range foodPrice.PricesSites {
+		entity := &DistrictFoodPriceEntity{}
+		entity.District = foodPrice.District
+		entity.Time = foodPrice.Time
+		entity.Food = foodPrice.Food
+		entity.Price = p.Price
+		entity.Site = p.Site
+		entities = append(entities, entity)
+	}
+	return entities
 }

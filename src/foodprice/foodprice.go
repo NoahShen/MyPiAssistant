@@ -17,9 +17,13 @@ type CityFoodPrice struct {
 }
 
 type DistrictFoodPrice struct {
-	District string
-	Time     int64
-	Food     string
-	Price    float64
-	Site     string
+	District    string
+	Time        int64
+	Food        string
+	PricesSites []PriceSite
+}
+
+type PriceSite struct {
+	Price float64
+	Site  string
 }
