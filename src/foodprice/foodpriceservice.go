@@ -395,7 +395,7 @@ func (self *FoodPriceService) formatDistrictFoodPrice(districtFoodPrices []*Dist
 				count++
 			}
 		}
-		buffer.WriteString(fmt.Sprintf("\n%s的均价：%.2f", p.Food, avgPrice/float64(count)))
+		buffer.WriteString(fmt.Sprintf("\n%s均价：%.2f", p.Food, avgPrice/float64(count)))
 	}
 	return buffer.String()
 }
@@ -486,7 +486,7 @@ func (self *FoodPriceService) subFoodPrice(username string, args []string) (stri
 		return "", errors.New("缺少参数!")
 	}
 	cityOrDistrict := self.getCityOrDistrictCode(args[0])
-	if len(cityOrDistrict) > 0 {
+	if len(cityOrDistrict) == 0 {
 		return "", errors.New("不支持订阅该城市或地区的菜价！")
 	}
 	userSubEntity, err := self.dbHelper.GetUserSub(username, cityOrDistrict)
