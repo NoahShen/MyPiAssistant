@@ -266,7 +266,7 @@ func (self *AqiService) updateAqiData() {
 			l4g.Error("Fetch aqi data from web error: %v", fetchErr)
 			continue
 		}
-
+		removeCache := false
 		for _, aqi := range aqiData {
 			if aqi.Time > cityInfo.LatestUpdateTime { // save new data
 				entity := self.convertAqiDataToEntity(aqi)
@@ -275,9 +275,12 @@ func (self *AqiService) updateAqiData() {
 					l4g.Error("Save AqiDataEntity error: %v", saveError)
 					continue
 				}
-				delete(aqiStatisticsCache, cityInfo.City)
-				l4g.Debug("Remove %s statistics cache.", cityInfo.City)
+				removeCache = true
 			}
+		}
+		if removeCache {
+			delete(aqiStatisticsCache, cityInfo.City)
+			l4g.Debug("Remove %s statistics cache.", cityInfo.City)
 		}
 
 	}

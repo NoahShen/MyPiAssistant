@@ -61,6 +61,29 @@ func (self *DistrictFoodPriceEntity) PreUpdate(s gorp.SqlExecutor) error {
 	return nil
 }
 
+// Usersub
+type UserSubEntity struct {
+	Id             int64
+	Username       string
+	CityOrDistrict string
+	SubStatus      int //0 for unsub, 1 for sub
+	CrtDate        int64
+	UpdDate        int64
+	Version        int64
+}
+
+func (self *UserSubEntity) PreInsert(s gorp.SqlExecutor) error {
+	now := time.Now().Unix()
+	self.CrtDate = now
+	self.UpdDate = now
+	return nil
+}
+
+func (self *UserSubEntity) PreUpdate(s gorp.SqlExecutor) error {
+	self.UpdDate = time.Now().Unix()
+	return nil
+}
+
 type FoodPriceDbHelper struct {
 	dbConn *sql.DB
 	dbmap  *gorp.DbMap
@@ -87,6 +110,9 @@ func (self *FoodPriceDbHelper) init() error {
 	cityFoodPriceEntityTable.SetVersionCol("Version")
 	districtFoodPriceEntityTable := self.dbmap.AddTable(DistrictFoodPriceEntity{}).SetKeys(true, "Id")
 	districtFoodPriceEntityTable.SetVersionCol("Version")
+	userSubEntityTable := self.dbmap.AddTable(UserSubEntity{}).SetKeys(true, "Id")
+	userSubEntityTable.SetVersionCol("Version")
+
 	return self.dbmap.CreateTablesIfNotExists()
 }
 
@@ -182,4 +208,61 @@ const (
 func (self *FoodPriceDbHelper) GetLastUpdateDistrictPriceTime(district string) (int64, error) {
 	time, err := self.dbmap.SelectInt(LastUpdateDistrictPriceTimeSql, district)
 	return time, err
+}
+
+func (self *FoodPriceDbHelper) AddUserSub(userSub *UserSubEntity) error {
+	return self.dbmap.Insert(userSub)
+}
+
+func (self *FoodPriceDbHelper) UpdateUserSub(userSub *UserSubEntity) error {
+	_, err := self.dbmap.Update(userSub)
+	return err
+}
+
+const (
+	GetUserSubSql = `select u.Id, 
+                        	u.Username, 
+							u.CityOrDistrict, 
+						    u.SubStatus, 
+						    u.CrtDate, 
+						    u.UpdDate, 
+						    u.Version
+	                   from UserSubEntity u
+	                  where u.Username = ?
+	                    and u.CityOrDistrict = ?`
+)
+
+func (self *FoodPriceDbHelper) GetUserSub(username, city string) (*UserSubEntity, error) {
+	list, err := self.dbmap.Select(UserSubEntity{}, GetUserSubSql, username, city)
+	if err != nil {
+		return nil, err
+	}
+	if len(list) > 0 {
+		return list[0].(*UserSubEntity), nil
+	}
+	return nil, nil
+}
+
+const (
+	GetSubscribedUserSql = `select u.Id, 
+                        	       u.Username, 
+								   u.CityOrDistrict, 
+						           u.SubStatus, 
+						           u.CrtDate, 
+						           u.UpdDate, 
+						           u.Version
+	                          from UserSubEntity u
+	                         where u.SubStatus = ?`
+)
+
+func (self *FoodPriceDbHelper) GetSubscribedUser() ([]*UserSubEntity, error) {
+	list, err := self.dbmap.Select(UserSubEntity{}, GetSubscribedUserSql, 1)
+	if err != nil {
+		return nil, err
+	}
+	entities := make([]*UserSubEntity, len(list))
+	for i, item := range list {
+		entities[i] = item.(*UserSubEntity)
+	}
+	return entities, nil
 }

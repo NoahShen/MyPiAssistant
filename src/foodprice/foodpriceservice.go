@@ -68,15 +68,15 @@ func (self *FoodPriceService) Init(configRawMsg *json.RawMessage, pushCh chan<- 
 	self.pushMsgChannel = pushCh
 	self.cron = cron.New()
 	self.cron.AddFunc(c.PricePushCron, func() {
-		//self.pushAqiDataToUser()
+		self.pushFoodPriceToUser()
 	})
 	self.cron.AddFunc(c.PriceUpdateCron, func() {
 		self.updateFoodPriceData()
 	})
 	self.commandMap = map[string]processFunc{
-		"foodprice": (*FoodPriceService).getFoodPrice,
-		//"subprice":   (*FoodPriceService).subAqiData,
-		//"unsubprice": (*FoodPriceService).unsubAqiData,
+		"foodprice":  (*FoodPriceService).getFoodPrice,
+		"subprice":   (*FoodPriceService).subFoodPrice,
+		"unsubprice": (*FoodPriceService).unsubFoodPrice,
 	}
 	self.aliasCommandMap = map[string]string{
 		"菜价":   "foodprice",
@@ -230,6 +230,36 @@ func (self *FoodPriceService) getDistrictCode(cityOrDistrict string) string {
 	return ""
 }
 
+func (self *FoodPriceService) getCityOrDistrictCode(cityOrDistrict string) string {
+	cityCode := self.getCityCode(cityOrDistrict)
+	if len(cityCode) > 0 {
+		return cityCode
+	} else {
+		districtCode := self.getDistrictCode(cityOrDistrict)
+		if len(districtCode) > 0 {
+			return districtCode
+		}
+	}
+	return ""
+}
+
+func (self *FoodPriceService) getCityOrDistrictNameByCode(cityOrDistrictCode string) string {
+	for cn, code := range self.cityCNNameMap {
+		if cn == cityOrDistrictCode ||
+			code == cityOrDistrictCode {
+			return cn
+		}
+	}
+
+	for cn, code := range self.districtCNNameMap {
+		if cn == cityOrDistrictCode ||
+			code == cityOrDistrictCode {
+			return cn
+		}
+	}
+	return ""
+}
+
 var cityFoodPriceMsgCache = map[string]string{}
 
 func (self *FoodPriceService) getCityFoodPrice(city string) (string, error) {
@@ -258,7 +288,7 @@ func (self *FoodPriceService) getCityFoodPrice(city string) (string, error) {
 	if len(cityFoodPrices) == 0 {
 		return "无记录", nil
 	}
-	msg := self.formatCityFoodPrice(cityFoodPrices)
+	msg := self.formatCityFoodPrice(cityFoodPrices, city)
 	url, _ := GetCityFoodPriceUrl(city)
 	msg = msg + fmt.Sprintf("\n详细信息请点击：%s", url)
 	cityFoodPriceMsgCache[city] = msg
@@ -283,13 +313,14 @@ func (self *FoodPriceService) convertCityEntityToFoodPrice(entities []*CityFoodP
 	return cityFoodPrices
 }
 
-func (self *FoodPriceService) formatCityFoodPrice(cityFoodPrices []*CityFoodPrice) string {
+func (self *FoodPriceService) formatCityFoodPrice(cityFoodPrices []*CityFoodPrice, cityCode string) string {
+	cityName := self.getCityOrDistrictNameByCode(cityCode)
 	var buffer bytes.Buffer
+	fTime := time.Unix(cityFoodPrices[0].Time, 0).Format("2006-01-02 15:04")
+	buffer.WriteString(fmt.Sprintf("%s采集的%s菜价", fTime, cityName))
 	for _, p := range cityFoodPrices {
 		buffer.WriteString(fmt.Sprintf("\n%s均价: %.2f", p.Food, p.AvgPrice))
 	}
-	fTime := time.Unix(cityFoodPrices[0].Time, 0).Format("2006-01-02 15:04")
-	buffer.WriteString(fmt.Sprintf("\n采集时间：%s", fTime))
 	return buffer.String()
 }
 
@@ -320,7 +351,7 @@ func (self *FoodPriceService) getDistrictFoodPrice(district string) (string, err
 	if len(districtFoodPrices) == 0 {
 		return "无记录", nil
 	}
-	msg := self.formatDistrictFoodPrice(districtFoodPrices)
+	msg := self.formatDistrictFoodPrice(districtFoodPrices, district)
 	url, _ := GetDistrictFoodPriceUrl(district)
 	msg = msg + fmt.Sprintf("\n详细信息请点击：%s", url)
 	districtFoodPriceMsgCache[district] = msg
@@ -350,8 +381,11 @@ func (self *FoodPriceService) convertDistrictEntityToFoodPrice(entities []*Distr
 	return districtFoodPrices
 }
 
-func (self *FoodPriceService) formatDistrictFoodPrice(districtFoodPrices []*DistrictFoodPrice) string {
+func (self *FoodPriceService) formatDistrictFoodPrice(districtFoodPrices []*DistrictFoodPrice, districtCode string) string {
+	districtName := self.getCityOrDistrictNameByCode(districtCode)
 	var buffer bytes.Buffer
+	fTime := time.Unix(districtFoodPrices[0].Time, 0).Format("2006-01-02 15:04")
+	buffer.WriteString(fmt.Sprintf("%s采集的%s菜价", fTime, districtName))
 	for _, p := range districtFoodPrices {
 		var avgPrice float64 = 0.0
 		count := 0
@@ -363,8 +397,6 @@ func (self *FoodPriceService) formatDistrictFoodPrice(districtFoodPrices []*Dist
 		}
 		buffer.WriteString(fmt.Sprintf("\n%s的均价：%.2f", p.Food, avgPrice/float64(count)))
 	}
-	fTime := time.Unix(districtFoodPrices[0].Time, 0).Format("2006-01-02 15:04")
-	buffer.WriteString(fmt.Sprintf("\n采集时间：%s", fTime))
 	return buffer.String()
 }
 
@@ -447,4 +479,86 @@ func (self *FoodPriceService) convertDistrictFoodPriceToEntity(foodPrice *Distri
 		entities = append(entities, entity)
 	}
 	return entities
+}
+
+func (self *FoodPriceService) subFoodPrice(username string, args []string) (string, error) {
+	if args == nil || len(args) == 0 {
+		return "", errors.New("缺少参数!")
+	}
+	cityOrDistrict := self.getCityOrDistrictCode(args[0])
+	if len(cityOrDistrict) > 0 {
+		return "", errors.New("不支持订阅该城市或地区的菜价！")
+	}
+	userSubEntity, err := self.dbHelper.GetUserSub(username, cityOrDistrict)
+	if err != nil {
+		l4g.Error("GetUserSub error in subscribe food price: username: %s, error: %v", username, err)
+		return "", errors.New("订阅失败！")
+	}
+
+	if userSubEntity == nil {
+		userSubEntity = &UserSubEntity{}
+		userSubEntity.Username = username
+		userSubEntity.CityOrDistrict = cityOrDistrict
+		userSubEntity.SubStatus = 1
+		addError := self.dbHelper.AddUserSub(userSubEntity)
+		if addError != nil {
+			l4g.Error("AddUserSub error in subscribe food price: username: %s, error: %v", username, err)
+			return "", errors.New("订阅失败！")
+		}
+	} else {
+		userSubEntity.SubStatus = 1
+		updateError := self.dbHelper.UpdateUserSub(userSubEntity)
+		if updateError != nil {
+			l4g.Error("UpdateUserSub error in subscribe food price: username: %s, error: %v", username, err)
+			return "", errors.New("订阅失败！")
+		}
+	}
+	return "订阅成功！", nil
+}
+
+func (self *FoodPriceService) unsubFoodPrice(username string, args []string) (string, error) {
+	if args == nil || len(args) == 0 {
+		return "", errors.New("缺少参数!")
+	}
+	cityOrDistrict := self.getCityOrDistrictCode(args[0])
+	if len(cityOrDistrict) == 0 {
+		return "", errors.New("不支持订阅该城市或地区的菜价！")
+	}
+	userSubEntity, err := self.dbHelper.GetUserSub(username, cityOrDistrict)
+	if err != nil {
+		l4g.Error("GetUserSub error in unsubscribe food price: username: %s, error: %v", username, err)
+		return "", errors.New("退订失败！")
+	}
+	if userSubEntity != nil {
+		userSubEntity.SubStatus = 0
+		updateError := self.dbHelper.UpdateUserSub(userSubEntity)
+		if updateError != nil {
+			l4g.Error("UpdateUserSub error in unsubscribe food price: username: %s, error: %v", username, err)
+			return "", errors.New("退订失败！")
+		}
+	} else {
+		return "未订阅过该城市的空气质量信息！", nil
+	}
+	return "退订成功！", nil
+}
+
+func (self *FoodPriceService) pushFoodPriceToUser() {
+	userSubEntities, getSubUserError := self.dbHelper.GetSubscribedUser()
+	if getSubUserError != nil {
+		l4g.Error("Get subscribed user error: %v", getSubUserError)
+		return
+	}
+
+	for _, userSubEntity := range userSubEntities {
+		msg, err := self.getFoodPrice("", []string{userSubEntity.CityOrDistrict})
+		if err != nil {
+			l4g.Error("getFoodPrice error in pushFoodPriceToUser, error: %v", err)
+			continue
+		}
+		pushMsg := &service.PushMessage{}
+		pushMsg.Type = service.Notification
+		pushMsg.Username = userSubEntity.Username
+		pushMsg.Message = msg
+		self.pushMsgChannel <- pushMsg
+	}
 }
