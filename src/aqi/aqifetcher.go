@@ -3,26 +3,27 @@ package aqi
 import (
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 	"utils"
 )
 
-var usEmbassyMap = map[string]string{
-	"beijing":   "1",
-	"chengdu":   "2",
-	"guangzhou": "3",
-	"shanghai":  "4",
-	"shenyang":  "5",
+var usEmbassyMap = map[string]bool{
+	"beijing":   true,
+	"chengdu":   true,
+	"guangzhou": true,
+	"shanghai":  true,
 }
 
 func FetchAqiFromWeb(city string) ([]*AqiData, error) {
-	cityCode, ok := usEmbassyMap[city]
+	_, ok := usEmbassyMap[city]
 	if ok {
-		return fetchAqiFromUSEmbassy(city, cityCode)
+		return fetchAqiFromUSEmbassy(city)
 	}
 	return fetchAqiFromCNOfficial(city)
 }
@@ -70,8 +71,82 @@ func fetchAqiFromCNOfficial(city string) ([]*AqiData, error) {
 	return aqiDataArr, nil
 }
 
+func fetchAqiFromUSEmbassy(city string) ([]*AqiData, error) {
+	var aqiDatas []*AqiData
+	var err error
+	aqiDatas, err = fetchAqiFromStateair(city)
+	if err == nil && len(aqiDatas) > 0 {
+		return aqiDatas, err
+	}
+	if Debug {
+		fmt.Printf("***Get %s AQI from USEmbassy Stateair error: %v\n", city, err)
+	}
+	return fetchAqiFromPM25Sinaapp(city)
+
+}
+
+var usEmbassyPM25SinaappMap = map[string]string{
+	"beijing":   "10",
+	"shanghai":  "21",
+	"guangzhou": "20",
+	"chengdu":   "28",
+}
+
+type AqiUSEmbassyPM25SinaappItem struct {
+	Aqi       int   `json:"i,omitempty"`
+	TimeShort int64 `json:"t,omitempty"`
+}
+
 const (
-	usEmbassyUrl = "http://www.stateair.net/web/rss/1/%s.xml"
+	usEmbassyPM25SinaappUrl = "http://pm25.sinaapp.com/if/getaqis.php?city=%s&type=1"
+)
+
+func fetchAqiFromPM25Sinaapp(city string) ([]*AqiData, error) {
+	cityCode := usEmbassyPM25SinaappMap[city]
+	url := fmt.Sprintf(usEmbassyPM25SinaappUrl, cityCode)
+	bytes, err := getHttpResponseContent(url)
+	if err != nil {
+		return nil, err
+	}
+	if Debug {
+		fmt.Printf("***Get %s AQI from USEmbassy PM25Sinaapp: %s\n", city, strings.TrimSpace(string(bytes)))
+	}
+	aqiItems := make([]AqiUSEmbassyPM25SinaappItem, 1)
+	if unmarshalErr := json.Unmarshal(bytes, &aqiItems); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+	aqiDataArr := make([]*AqiData, 0)
+	for _, item := range aqiItems {
+		aqiData := &AqiData{}
+		aqiData.City = city
+		aqiData.Aqi = item.Aqi
+		aqiData.Time = item.TimeShort * 3600
+		aqiData.Datasource = USEmbassy
+		aqiDataArr = append(aqiDataArr, aqiData)
+	}
+	sort.Sort(byTime(aqiDataArr))
+	latestAqiData := aqiDataArr[0]
+	if latestAqiData.Aqi < 0 {
+		errMsg := fmt.Sprintf("Invalid aqi data from PM25Sinaapp: %+v", latestAqiData)
+		return aqiDataArr, errors.New(errMsg)
+	}
+
+	if time.Now().Unix()-latestAqiData.Time > 60*60*3 {
+		errMsg := fmt.Sprintf("Can not get recent 3 hours aqi data from PM25Sinaapp: %+v", latestAqiData)
+		return aqiDataArr, errors.New(errMsg)
+	}
+	return aqiDataArr, nil
+}
+
+var usEmbassyStateairMap = map[string]string{
+	"beijing":   "1",
+	"chengdu":   "2",
+	"guangzhou": "3",
+	"shanghai":  "4",
+}
+
+const (
+	usEmbassyStateairUrl = "http://www.stateair.net/web/rss/1/%s.xml"
 )
 
 type rss2_0Feed struct {
@@ -101,14 +176,15 @@ type rss2_0Item struct {
 	Date        string   `xml:"ReadingDateTime"`
 }
 
-func fetchAqiFromUSEmbassy(city, cityCode string) ([]*AqiData, error) {
-	url := fmt.Sprintf(usEmbassyUrl, cityCode)
+func fetchAqiFromStateair(city string) ([]*AqiData, error) {
+	cityCode := usEmbassyStateairMap[city]
+	url := fmt.Sprintf(usEmbassyStateairUrl, cityCode)
 	bytes, err := getHttpResponseContent(url)
 	if err != nil {
 		return nil, err
 	}
 	if Debug {
-		fmt.Printf("***Get %s AQI from USEmbassy: %s\n", city, strings.TrimSpace(string(bytes)))
+		fmt.Printf("***Get %s AQI from USEmbassy Stateair: %s\n", city, strings.TrimSpace(string(bytes)))
 	}
 	feed := rss2_0Feed{}
 	if unmarshalErr := xml.Unmarshal(bytes, &feed); unmarshalErr != nil {
@@ -132,6 +208,16 @@ func fetchAqiFromUSEmbassy(city, cityCode string) ([]*AqiData, error) {
 		}
 	}
 	sort.Sort(byTime(aqiDataArr))
+	latestAqiData := aqiDataArr[0]
+	if latestAqiData.Aqi < 0 {
+		errMsg := fmt.Sprintf("Invalid aqi data from Stateair: %+v", latestAqiData)
+		return aqiDataArr, errors.New(errMsg)
+	}
+
+	if time.Now().Unix()-latestAqiData.Time > 60*60*3 {
+		errMsg := fmt.Sprintf("Can not get recent 3 hours aqi data from Stateair: %+v", latestAqiData)
+		return aqiDataArr, errors.New(errMsg)
+	}
 
 	return aqiDataArr, nil
 }
